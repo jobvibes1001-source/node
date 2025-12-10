@@ -75,20 +75,7 @@ if (process.env.MONGO_URI) {
   console.log("⚠️ MONGO_URI not set, skipping MongoDB connection");
 }
 
-// Load routes with error handling
-try {
-  const router = require("./src/api/router");
-  app.use("/api", router);
-  console.log("✅ API routes loaded successfully");
-} catch (err) {
-  console.error("❌ Error loading routes:", err.message);
-  // Add a fallback route
-  app.use("/api", (req, res) => {
-    res.status(503).json({ error: "API routes not available", message: err.message });
-  });
-}
-
-// Start server
+// Start server FIRST (before loading routes)
 // Cloud Run provides PORT environment variable (defaults to 8080)
 const PORT = process.env.PORT || process.env.NODE_PORT || 8080;
 const HOST = process.env.HOST || "0.0.0.0"; // Listen on all interfaces for Cloud Run
@@ -98,11 +85,17 @@ console.log(`🔧 PORT environment variable: ${process.env.PORT || "not set"}`);
 console.log(`🔧 Using PORT: ${PORT}, HOST: ${HOST}`);
 
 let server;
+let serverStarted = false;
+
 try {
   server = app.listen(PORT, HOST, () => {
+    serverStarted = true;
     console.log(`🚀 Server running on ${HOST}:${PORT}`);
     console.log(`📡 Health check available at http://${HOST}:${PORT}/health`);
     console.log(`✅ Server is ready to accept connections`);
+    
+    // Load routes AFTER server starts (non-blocking)
+    loadRoutes();
   });
   
   server.on("error", (err) => {
@@ -120,7 +113,29 @@ try {
   });
 } catch (err) {
   console.error("❌ Failed to start server:", err);
+  console.error("❌ Error details:", err.stack);
   process.exit(1);
+}
+
+// Load routes asynchronously after server starts
+function loadRoutes() {
+  console.log("📦 Loading API routes...");
+  try {
+    const router = require("./src/api/router");
+    app.use("/api", router);
+    console.log("✅ API routes loaded successfully");
+  } catch (err) {
+    console.error("❌ Error loading routes:", err.message);
+    console.error("❌ Route error stack:", err.stack);
+    // Add a fallback route
+    app.use("/api", (req, res) => {
+      res.status(503).json({ 
+        error: "API routes not available", 
+        message: err.message,
+        timestamp: new Date().toISOString()
+      });
+    });
+  }
 }
 
 // Graceful shutdown
@@ -146,10 +161,22 @@ async function cleanup(signal) {
 // Crash handlers (let Render/PM2 restart the app)
 process.on("uncaughtException", (err) => {
   console.error("💥 Uncaught Exception:", err);
-  process.exit(1);
+  console.error("💥 Stack:", err.stack);
+  // Only exit if server hasn't started yet
+  if (!serverStarted) {
+    console.error("💥 Server not started yet, exiting...");
+    process.exit(1);
+  } else {
+    console.error("💥 Server already started, logging error but continuing...");
+  }
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("💥 Unhandled Rejection at:", promise, "reason:", reason);
-  process.exit(1);
+  console.error("💥 Unhandled Rejection at:", promise);
+  console.error("💥 Reason:", reason);
+  // Don't exit on unhandled rejection - log it but keep server running
+  // This is especially important during startup when MongoDB might fail
+  if (!serverStarted) {
+    console.error("💥 Server not started yet, but continuing anyway...");
+  }
 });
