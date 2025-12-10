@@ -1,23 +1,19 @@
 steps:
-  # Step 1: Build container image
+  # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/node-git:latest', '.']
-
-  # Step 2: Push image
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/jobvibes:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/jobvibes:latest', '.']
+  
+  # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/node-git:latest']
-
-  # Step 3: Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      [
-        'run', 'deploy', 'node-git',
-        '--image', 'gcr.io/$PROJECT_ID/node-git:latest',
-        '--region', 'asia-south1',
-        '--platform', 'managed',
-        '--allow-unauthenticated'
-      ]
+    args: ['push', 'gcr.io/$PROJECT_ID/jobvibes:$SHORT_SHA']
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/jobvibes:latest']
 
 images:
-  - 'gcr.io/$PROJECT_ID/node-git:latest'
+  - 'gcr.io/$PROJECT_ID/jobvibes:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/jobvibes:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
