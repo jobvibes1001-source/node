@@ -77,7 +77,7 @@ if (process.env.MONGO_URI) {
 
 // Start server FIRST (before loading routes)
 // Cloud Run provides PORT environment variable (defaults to 8080)
-const PORT = process.env.PORT || process.env.NODE_PORT || 8080;
+const PORT = process.env.PORT ;
 const HOST = process.env.HOST || "0.0.0.0"; // Listen on all interfaces for Cloud Run
 
 console.log(`🔧 Starting server...`);
