@@ -16,8 +16,8 @@ COPY . .
 # Create uploads directory if it doesn't exist
 RUN mkdir -p src/uploads
 
-# Expose port
-EXPOSE 3000
+# Expose port (Cloud Run uses PORT env var, defaults to 8080)
+EXPOSE 8080
 
 # Start the application
 CMD ["node", "app.js"]
