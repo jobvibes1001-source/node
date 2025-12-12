@@ -1,4 +1,5 @@
-const { Types } = require("mongoose");
+const mongoose = require("mongoose");
+const { Types } = mongoose;
 const User = require("../../models/userSchema");
 const Session = require("../../models/sessionSchema");
 const Otp = require("../../models/otpSchema");
@@ -62,6 +63,16 @@ exports.verifyOtpService = async (
   ip = ""
 ) => {
   try {
+    // Check if MongoDB is connected
+    if (mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection not available. Please try again later.",
+        data: {},
+      };
+    }
+
     const otpRecord = await Otp.findOne({ phone, fcm_token }).sort({
       createdAt: -1,
     });
@@ -106,13 +117,43 @@ exports.verifyOtpService = async (
       data: { ...destructureUser(user), tokens },
     };
   } catch (error) {
-    return { status: false, statusCode: 500, message: error.message, data: {} };
+    console.error("Error in verifyOtpService:", error);
+    
+    // Check if it's a MongoDB connection error
+    if (error.name === "MongoServerSelectionError" || 
+        error.message?.includes("buffering timed out") ||
+        error.message?.includes("connection") ||
+        mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection error. Please try again later.",
+        data: {},
+      };
+    }
+    
+    return { 
+      status: false, 
+      statusCode: 500, 
+      message: error.message || "Internal server error", 
+      data: {} 
+    };
   }
 };
 
 // ---- Token Registration ---- //
 exports.tokenRegisterService = async (body, userAgent = "", ip = "") => {
   try {
+    // Check if MongoDB is connected
+    if (mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection not available. Please try again later.",
+        data: {},
+      };
+    }
+
     const { token, fcm_token } = body;
 
     // ✅ Decode Firebase JWT (no signature verification here)
@@ -184,10 +225,24 @@ exports.tokenRegisterService = async (body, userAgent = "", ip = "") => {
     };
   } catch (error) {
     console.error("Error in tokenRegisterService:", error);
+    
+    // Check if it's a MongoDB connection error
+    if (error.name === "MongoServerSelectionError" || 
+        error.message?.includes("buffering timed out") ||
+        error.message?.includes("connection") ||
+        mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection error. Please try again later.",
+        data: {},
+      };
+    }
+    
     return {
       status: false,
       statusCode: 500,
-      message: error.message,
+      message: error.message || "Internal server error",
       data: {},
     };
   }

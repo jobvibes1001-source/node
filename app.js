@@ -47,8 +47,13 @@ mongoose.set("strictQuery", false);
 async function connectDB() {
   try {
     await mongoose.connect(URL, {
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+      serverSelectionTimeoutMS: 30000, // Timeout after 30s
       socketTimeoutMS: 45000,
+      connectTimeoutMS: 30000,
+      maxPoolSize: 10,
+      minPoolSize: 1,
+      // Keep buffering enabled but with timeout - this allows operations to queue
+      // while connection is being established, then fail after timeout
     });
     console.log("--- MongoDB connected successfully ---");
   } catch (err) {
