@@ -25,10 +25,25 @@ app.get("/", (req, res) => {
 
 // Health check endpoint for Cloud Run
 app.get("/health", (req, res) => {
+  const connectionState = mongoose.connection.readyState;
+  const states = {
+    0: "disconnected",
+    1: "connected",
+    2: "connecting",
+    3: "disconnecting"
+  };
+  
   res.status(200).json({ 
     status: "ok", 
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+    mongodb: {
+      state: states[connectionState] || "unknown",
+      readyState: connectionState,
+      connected: connectionState === 1,
+      host: mongoose.connection.host || "N/A",
+      name: mongoose.connection.name || "N/A"
+    },
+    mongo_uri_set: !!process.env.MONGO_URI
   });
 });
 
@@ -44,45 +59,96 @@ if (fs.existsSync(uploadsPath)) {
 const URL = process.env.MONGO_URI || "mongodb://localhost:27017/jobvibes";
 mongoose.set("strictQuery", false);
 
+// Track connection attempts
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS_LOG = 10;
+
 async function connectDB() {
+  // Don't reconnect if already connected or connecting
+  if (mongoose.connection.readyState === 1) {
+    console.log("✅ MongoDB already connected");
+    return;
+  }
+  if (mongoose.connection.readyState === 2) {
+    console.log("⏳ MongoDB connection in progress, skipping...");
+    return;
+  }
+
+  connectionAttempts++;
+  if (connectionAttempts <= MAX_CONNECTION_ATTEMPTS_LOG) {
+    console.log(`🔌 Attempting MongoDB connection (attempt ${connectionAttempts})...`);
+    console.log(`📍 Connection string: ${URL.substring(0, 20)}...${URL.length > 20 ? '***' : ''}`);
+  }
+
   try {
+    // Close existing connection if any before reconnecting
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
+
     await mongoose.connect(URL, {
       serverSelectionTimeoutMS: 30000, // Timeout after 30s
       socketTimeoutMS: 45000,
       connectTimeoutMS: 30000,
       maxPoolSize: 10,
       minPoolSize: 1,
-      // Keep buffering enabled but with timeout - this allows operations to queue
-      // while connection is being established, then fail after timeout
     });
-    console.log("--- MongoDB connected successfully ---");
+    
+    connectionAttempts = 0; // Reset on success
+    console.log("✅ MongoDB connected successfully");
+    console.log(`📊 Connection state: ${getConnectionState(mongoose.connection.readyState)}`);
   } catch (err) {
-    console.error("--- DB Connection ERROR ---", err.message);
-    console.log("⏳ Retrying MongoDB connection in 5s...");
+    if (connectionAttempts <= MAX_CONNECTION_ATTEMPTS_LOG) {
+      console.error("❌ DB Connection ERROR:", err.message);
+      console.error("❌ Error details:", err.name, err.code);
+    }
+    console.log(`⏳ Retrying MongoDB connection in 5s... (attempt ${connectionAttempts})`);
     setTimeout(connectDB, 5000);
   }
 }
 
+function getConnectionState(state) {
+  const states = {
+    0: "disconnected",
+    1: "connected",
+    2: "connecting",
+    3: "disconnecting"
+  };
+  return states[state] || "unknown";
+}
+
 // Start MongoDB connection (non-blocking, server will start regardless)
 if (process.env.MONGO_URI) {
-  connectDB();
+  console.log("🔧 MONGO_URI detected, initializing MongoDB connection...");
   
-  // Reconnect on disconnect/error
-  mongoose.connection.on("disconnected", () => {
-    console.error("⚠️ MongoDB disconnected! Reconnecting...");
-    setTimeout(connectDB, 5000);
+  // Set up connection event listeners BEFORE connecting
+  mongoose.connection.on("connected", () => {
+    console.log("✅ MongoDB connection event: connected");
   });
 
   mongoose.connection.on("error", (err) => {
-    console.error("❌ MongoDB error:", err.message);
+    console.error("❌ MongoDB connection error event:", err.message);
   });
+
+  mongoose.connection.on("disconnected", () => {
+    console.error("⚠️ MongoDB disconnected event - will attempt reconnection");
+    // Don't reconnect here, let the retry logic handle it
+  });
+
+  mongoose.connection.on("reconnected", () => {
+    console.log("🔄 MongoDB reconnected");
+  });
+
+  // Start connection
+  connectDB();
 } else {
   console.log("⚠️ MONGO_URI not set, skipping MongoDB connection");
+  console.log("⚠️ Server will start but database operations will fail");
 }
 
 // Start server FIRST (before loading routes)
-// Cloud Run provides PORT environment variable (defaults to 8080)
-const PORT = process.env.PORT ;
+// Cloud Run provides PORT environment variable (defaults to 8080 for Cloud Run, 3000 for local)
+const PORT = process.env.PORT || process.env.NODE_PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0"; // Listen on all interfaces for Cloud Run
 
 console.log(`🔧 Starting server...`);
