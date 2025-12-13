@@ -10,6 +10,23 @@ const fs = require("fs");
 const path = require("path");
 const CONSTANT = require("../../utility/constant");
 const { getPaginatedResults } = require("../../utility/paginate");
+const cloudinary = require("cloudinary").v2;
+
+// Configure Cloudinary
+if (
+  CONSTANT.CLOUDINARY_CLOUD_NAME &&
+  CONSTANT.CLOUDINARY_API_KEY &&
+  CONSTANT.CLOUDINARY_API_SECRET
+) {
+  cloudinary.config({
+    cloud_name: CONSTANT.CLOUDINARY_CLOUD_NAME,
+    api_key: CONSTANT.CLOUDINARY_API_KEY,
+    api_secret: CONSTANT.CLOUDINARY_API_SECRET,
+  });
+  console.log("✅ Cloudinary configured successfully");
+} else {
+  console.warn("⚠️ Cloudinary credentials not found in environment variables");
+}
 
 // Helper function to build absolute URLs
 const buildAbsoluteUrl = (pathOrUrl, req) => {
@@ -360,7 +377,7 @@ exports.step3Services = async (req) => {
 };
 
 // / --- Upload Service ---
-exports.uploadServices = async (req) => {
+exports.uploadServices1 = async (req) => {
   try {
     if (!req.files || req.files.length === 0) {
       return {
@@ -403,6 +420,99 @@ exports.uploadServices = async (req) => {
       status: false,
       statusCode: 500,
       message: error.message,
+      data: {},
+    };
+  }
+};
+
+// --- Upload Service (Cloudinary) ---
+exports.uploadServices = async (req) => {
+  try {
+    // Check if Cloudinary is configured
+    if (
+      !CONSTANT.CLOUDINARY_CLOUD_NAME ||
+      !CONSTANT.CLOUDINARY_API_KEY ||
+      !CONSTANT.CLOUDINARY_API_SECRET
+    ) {
+      return {
+        status: false,
+        statusCode: 500,
+        message: "Cloudinary configuration not found. Please set CLOUDINARY_* environment variables.",
+        data: {},
+      };
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return {
+        status: false,
+        statusCode: 400,
+        message: "No files uploaded",
+        data: {},
+      };
+    }
+
+    const uploads = await Promise.all(
+      req.files.map(async (file) => {
+        try {
+          // Upload to Cloudinary
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: "jobvibes", // Optional: organize files in a folder
+            resource_type: "auto", // Automatically detect resource type (image, video, raw)
+            public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, "_")}`, // Unique filename
+          });
+
+          // Save file info to database
+          const fileDoc = await File.create({
+            filename: result.public_id,
+            originalName: file.originalname,
+            path: result.secure_url, // Store Cloudinary URL as path
+            url: result.secure_url, // Public URL from Cloudinary
+            size: file.size,
+          });
+
+          // Optionally delete local file after upload to Cloudinary
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+
+          return {
+            id: fileDoc._id,
+            filename: fileDoc.filename,
+            originalName: fileDoc.originalName,
+            url: fileDoc.url,
+            size: fileDoc.size,
+            uploadedAt: fileDoc.uploadedAt,
+            cloudinary: {
+              public_id: result.public_id,
+              format: result.format,
+              width: result.width,
+              height: result.height,
+              bytes: result.bytes,
+            },
+          };
+        } catch (uploadError) {
+          console.error(`Error uploading file ${file.originalname}:`, uploadError);
+          // Optionally delete local file if upload fails
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+          throw uploadError;
+        }
+      })
+    );
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "Files uploaded to Cloudinary successfully",
+      data: uploads,
+    };
+  } catch (error) {
+    console.error("Cloudinary upload error:", error);
+    return {
+      status: false,
+      statusCode: 500,
+      message: error.message || "Failed to upload files to Cloudinary",
       data: {},
     };
   }
