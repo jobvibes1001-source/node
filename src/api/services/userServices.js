@@ -379,7 +379,7 @@ exports.step3Services = async (req) => {
 };
 
 // / --- Upload Service ---
-exports.uploadServices = async (req) => {
+exports.uploadServices1 = async (req) => {
   try {
     if (!req.files || req.files.length === 0) {
       return {
@@ -428,7 +428,7 @@ exports.uploadServices = async (req) => {
 };
 
 // --- Upload Service (Cloudinary) ---
-exports.uploadServicesCloudinary = async (req) => {
+exports.uploadServices = async (req) => {
   try {
     // Check MongoDB connection
     const mongoose = require("mongoose");
