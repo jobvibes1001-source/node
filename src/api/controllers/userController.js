@@ -50,12 +50,20 @@ exports.step3Controller = async (req, res, next) => {
 exports.uploadController = async (req, res, next) => {
   try {
     console.log("Request body in uploadController:--", req.body);
+    console.log("Files in uploadController:--", req.files ? req.files.length : 0, "files");
+    console.log("File details:", req.files?.map(f => ({ fieldname: f.fieldname, originalname: f.originalname, size: f.size })));
     const data = await uploadServices(req);
     sendResponse(res, data);
     console.log("Response in uploadController:--", data);
   } catch (error) {
-    console.log("Error in uploadController:--", error);
-    next(error);
+    console.error("Error in uploadController:--", error);
+    console.error("Error stack:", error.stack);
+    sendResponse(res, {
+      status: false,
+      statusCode: 500,
+      message: error.message || "Internal server error",
+      data: { error: error.name },
+    });
   }
 };
 

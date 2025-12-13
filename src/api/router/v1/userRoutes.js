@@ -88,10 +88,11 @@ router.get("/skills", authenticate, skillsController);
 
 router.post("/update", authenticate, updateController);
 
+// Accept files from multiple field names: "files", "uri", or any field
 router.post(
   "/upload",
   authenticate,
-  upload.array("files", 5),
+  upload.any(), // Accept files from any field name (files, uri, etc.)
   compressIfLarge, // compression middleware
   uploadController
 );

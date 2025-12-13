@@ -13,19 +13,21 @@ const { getPaginatedResults } = require("../../utility/paginate");
 const cloudinary = require("cloudinary").v2;
 
 // Configure Cloudinary
-if (
-  CONSTANT.CLOUDINARY_CLOUD_NAME &&
-  CONSTANT.CLOUDINARY_API_KEY &&
-  CONSTANT.CLOUDINARY_API_SECRET
-) {
+const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
+const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
+const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
+
+if (cloudName && apiKey && apiSecret) {
   cloudinary.config({
-    cloud_name: CONSTANT.CLOUDINARY_CLOUD_NAME,
-    api_key: CONSTANT.CLOUDINARY_API_KEY,
-    api_secret: CONSTANT.CLOUDINARY_API_SECRET,
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
   });
   console.log("✅ Cloudinary configured successfully");
+  console.log(`   Cloud Name: ${cloudName.substring(0, 3)}***`);
 } else {
   console.warn("⚠️ Cloudinary credentials not found in environment variables");
+  console.warn(`   Cloud Name: ${cloudName ? 'Set' : 'Missing'}, API Key: ${apiKey ? 'Set' : 'Missing'}, API Secret: ${apiSecret ? 'Set' : 'Missing'}`);
 }
 
 // Helper function to build absolute URLs
@@ -377,7 +379,7 @@ exports.step3Services = async (req) => {
 };
 
 // / --- Upload Service ---
-exports.uploadServices1 = async (req) => {
+exports.uploadServices = async (req) => {
   try {
     if (!req.files || req.files.length === 0) {
       return {
@@ -426,39 +428,70 @@ exports.uploadServices1 = async (req) => {
 };
 
 // --- Upload Service (Cloudinary) ---
-exports.uploadServices = async (req) => {
+exports.uploadServicesCloudinary = async (req) => {
   try {
+    // Check MongoDB connection
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection not available. Please try again later.",
+        data: {},
+      };
+    }
+
     // Check if Cloudinary is configured
-    if (
-      !CONSTANT.CLOUDINARY_CLOUD_NAME ||
-      !CONSTANT.CLOUDINARY_API_KEY ||
-      !CONSTANT.CLOUDINARY_API_SECRET
-    ) {
+    const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
+    const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
+    
+    if (!cloudName || !apiKey || !apiSecret) {
+      console.error("Cloudinary configuration missing. Cloud Name:", !!cloudName, "API Key:", !!apiKey, "API Secret:", !!apiSecret);
       return {
         status: false,
         statusCode: 500,
-        message: "Cloudinary configuration not found. Please set CLOUDINARY_* environment variables.",
+        message: "Cloudinary configuration not found. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.",
         data: {},
       };
     }
 
-    if (!req.files || req.files.length === 0) {
+    // Re-configure Cloudinary with trimmed values to ensure clean config
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
+
+    // Check for files - handle both req.files (from multer) and req.file (single file)
+    const files = req.files || (req.file ? [req.file] : []);
+    
+    if (!files || files.length === 0) {
+      console.error("No files found in request. req.files:", req.files, "req.file:", req.file);
       return {
         status: false,
         statusCode: 400,
-        message: "No files uploaded",
+        message: "No files uploaded. Please use field name 'files' for multiple files or 'file' for single file.",
         data: {},
       };
     }
 
+    console.log(`Processing ${files.length} file(s) for upload to Cloudinary`);
+    
     const uploads = await Promise.all(
-      req.files.map(async (file) => {
+      files.map(async (file) => {
         try {
+          // Ensure file.path exists
+          if (!file.path) {
+            throw new Error(`File path is missing for file: ${file.originalname || 'unknown'}`);
+          }
+          
           // Upload to Cloudinary
+          console.log(`Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`);
           const result = await cloudinary.uploader.upload(file.path, {
             folder: "jobvibes", // Optional: organize files in a folder
             resource_type: "auto", // Automatically detect resource type (image, video, raw)
-            public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, "_")}`, // Unique filename
+            public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_")}`, // Unique filename, sanitized
           });
 
           // Save file info to database
@@ -491,12 +524,20 @@ exports.uploadServices = async (req) => {
             },
           };
         } catch (uploadError) {
-          console.error(`Error uploading file ${file.originalname}:`, uploadError);
+          console.error(`Error uploading file ${file.originalname} to Cloudinary:`, uploadError);
+          console.error(`Cloudinary error details:`, {
+            message: uploadError.message,
+            http_code: uploadError.http_code,
+            name: uploadError.name,
+          });
+          
           // Optionally delete local file if upload fails
           if (fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
           }
-          throw uploadError;
+          
+          // Re-throw with more context
+          throw new Error(`Cloudinary upload failed: ${uploadError.message || uploadError}`);
         }
       })
     );
@@ -509,11 +550,45 @@ exports.uploadServices = async (req) => {
     };
   } catch (error) {
     console.error("Cloudinary upload error:", error);
+    console.error("Error stack:", error.stack);
+    
+    // Check if it's a MongoDB connection error
+    const mongoose = require("mongoose");
+    if (error.name === "MongoServerSelectionError" || 
+        error.message?.includes("buffering timed out") ||
+        error.message?.includes("connection") ||
+        mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection error. Please try again later.",
+        data: {},
+      };
+    }
+    
+    // Handle Cloudinary-specific errors
+    if (error.message?.includes("cloud_name is disabled") || 
+        error.message?.includes("Invalid cloud_name") ||
+        error.http_code === 401) {
+      return {
+        status: false,
+        statusCode: 500,
+        message: "Cloudinary configuration error: The cloud_name is invalid or disabled. Please check your CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.",
+        data: { 
+          error: "CloudinaryConfigError",
+          details: "Verify your Cloudinary credentials are correct and the account is active"
+        },
+      };
+    }
+    
     return {
       status: false,
       statusCode: 500,
       message: error.message || "Failed to upload files to Cloudinary",
-      data: {},
+      data: { 
+        error: error.name || "Unknown error",
+        details: error.http_code ? `HTTP ${error.http_code}` : undefined
+      },
     };
   }
 };
