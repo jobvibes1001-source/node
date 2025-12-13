@@ -47,13 +47,17 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Serve static files (only if directory exists)
-const uploadsPath = path.resolve("src/uploads");
-if (fs.existsSync(uploadsPath)) {
-  app.use("/uploads", express.static(uploadsPath));
-} else {
-  console.log("⚠️ Uploads directory not found, skipping static file serving");
+// Serve static files - use the same path as multer uploads
+// This matches the path used in userRoutes.js: path.resolve(__dirname, "../../../uploads")
+const uploadsPath = path.resolve(__dirname, "uploads");
+
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+  console.log(`✅ Created uploads directory: ${uploadsPath}`);
 }
+
+app.use("/uploads", express.static(uploadsPath));
+console.log(`✅ Static file serving enabled for uploads: ${uploadsPath}`);
 
 // MongoDB connection (non-blocking)
 const URL = process.env.MONGO_URI || "mongodb://localhost:27017/jobvibes";

@@ -22,11 +22,14 @@ const {
   step1Schema,
 } = require("../../validationSchema/userValidationSchema.js");
 
-// Uploads folder path
-const uploadDir = path.join(__dirname, "../../../uploads");
+// Uploads folder path - use absolute path for consistency
+const uploadDir = path.resolve(__dirname, "../../../uploads");
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
+  console.log(`✅ Created uploads directory: ${uploadDir}`);
+} else {
+  console.log(`✅ Uploads directory exists: ${uploadDir}`);
 }
 
 // Multer storage config

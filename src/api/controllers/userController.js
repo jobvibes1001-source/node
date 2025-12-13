@@ -4,6 +4,7 @@ const {
   step2Services,
   step3Services,
   uploadServices,
+  uploadServicesCloudinary,
   skillsServices,
   updateProfileServices,
   getProfileServices,
