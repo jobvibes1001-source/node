@@ -102,6 +102,13 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Soft delete field: 0 = active, 1 = deleted
+    deleted: {
+      type: Number,
+      enum: [0, 1],
+      default: 0,
+    },
   },
   { timestamps: true }
 );

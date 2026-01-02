@@ -15,6 +15,7 @@ const {
   tokenRegisterService,
   sendEmailOtpService,
   validateEmailOtpService,
+  deleteAccountService,
 } = require("../services/authServices");
 
 // --- Helper to handle responses ---
@@ -214,6 +215,27 @@ exports.validateOtpController = async (req, res, next) => {
     console.log("Response in validateOtpController:--", data);
   } catch (error) {
     console.log("Error in validateOtpController:--", error);
+    next(error);
+  }
+};
+
+exports.deleteAccountController = async (req, res, next) => {
+  try {
+    console.log("Request in deleteAccountController:--", req.user?.sub);
+    const userId = req.user?.sub;
+    if (!userId) {
+      return sendResponse(res, {
+        status: false,
+        statusCode: 401,
+        message: "User not authenticated",
+        data: {},
+      });
+    }
+    const data = await deleteAccountService(userId);
+    sendResponse(res, data);
+    console.log("Response in deleteAccountController:--", data);
+  } catch (error) {
+    console.log("Error in deleteAccountController:--", error);
     next(error);
   }
 };

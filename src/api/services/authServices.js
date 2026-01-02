@@ -97,7 +97,18 @@ exports.verifyOtpService = async (
         confirm_password: password,
         role: role || "candidate",
         gender: gender || "prefer_not_to_say",
+        deleted: 0, // New user is not deleted
       });
+    }
+
+    // Check if account is deleted
+    if (user.deleted === 1) {
+      return {
+        status: false,
+        statusCode: 403,
+        message: "This account has been deleted. Please contact support if you need assistance.",
+        data: {},
+      };
     }
 
     const session = await Session.create({
@@ -186,12 +197,23 @@ exports.tokenRegisterService = async (body, userAgent = "", ip = "") => {
         user_name: `user_${Date.now()}`, // random unique username
         phone_number: phone,
         fcm_token: fcm_token,
+        deleted: 0, // New user is not deleted
         // email: `${phone}@placeholder.local`,
         // password,
         // confirm_password: password,
         // role: role || "candidate",
         // gender: gender || "",
       });
+    }
+
+    // Check if account is deleted
+    if (user.deleted === 1) {
+      return {
+        status: false,
+        statusCode: 403,
+        message: "This account has been deleted. Please contact support if you need assistance.",
+        data: {},
+      };
     }
 
     await User.updateOne({ _id: user._id }, { fcm_token });
@@ -578,5 +600,65 @@ exports.validateEmailOtpService = async (req) => {
   } catch (error) {
     console.error("validateEmailOtpService error:", error);
     return { status: false, message: error.message, data: {} };
+  }
+};
+
+// --- Delete Account Service ---
+exports.deleteAccountService = async (userId) => {
+  try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return {
+        status: false,
+        statusCode: 503,
+        message: "Database connection not available. Please try again later.",
+        data: {},
+      };
+    }
+
+    // Find user by ID
+    const user = await User.findById(userId);
+    if (!user) {
+      return {
+        status: false,
+        statusCode: 404,
+        message: "User not found",
+        data: {},
+      };
+    }
+
+    // Check if already deleted
+    if (user.deleted === 1) {
+      return {
+        status: false,
+        statusCode: 400,
+        message: "Account is already deleted",
+        data: {},
+      };
+    }
+
+    // Soft delete: Set deleted = 1
+    await User.findByIdAndUpdate(userId, { deleted: 1 });
+
+    // Revoke all active sessions for this user
+    await Session.updateMany(
+      { user_id: userId, revoked: false },
+      { revoked: true, revoked_at: new Date() }
+    );
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "Account deleted successfully",
+      data: {},
+    };
+  } catch (error) {
+    console.error("Error in deleteAccountService:", error);
+    return {
+      status: false,
+      statusCode: 500,
+      message: error.message || "Failed to delete account",
+      data: {},
+    };
   }
 };

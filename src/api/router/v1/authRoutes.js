@@ -33,6 +33,7 @@ const {
   tokenRegisterController,
   validateOtpController,
   sendVerifyEmailController,
+  deleteAccountController,
 } = require("../../controllers/authController");
 
 const { authenticate } = require("../../middleware/authMiddleware");
@@ -79,5 +80,8 @@ router.post("/send-verify-email", authenticate, sendVerifyEmailController);
 
 // Route to validate OTP
 router.post("/validate-otp", authenticate, validateOtpController);
+
+// Delete account (self-delete)
+router.delete("/delete-account", authenticate, deleteAccountController);
 
 module.exports = router;
