@@ -278,10 +278,10 @@ exports.step2Services = async (req) => {
       // }
 
       updateFields = {
-        skills,
+        // skills,
         experience,
-        qualifications,
-        job_type, // store as array
+        // qualifications,
+        // job_type, // store as array
       };
     } else {
       return {
@@ -445,7 +445,7 @@ exports.uploadServices = async (req) => {
     const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
     const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
     const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
-    
+
     if (!cloudName || !apiKey || !apiSecret) {
       console.error("Cloudinary configuration missing. Cloud Name:", !!cloudName, "API Key:", !!apiKey, "API Secret:", !!apiSecret);
       return {
@@ -465,7 +465,7 @@ exports.uploadServices = async (req) => {
 
     // Check for files - handle both req.files (from multer) and req.file (single file)
     const files = req.files || (req.file ? [req.file] : []);
-    
+
     if (!files || files.length === 0) {
       console.error("No files found in request. req.files:", req.files, "req.file:", req.file);
       return {
@@ -477,7 +477,7 @@ exports.uploadServices = async (req) => {
     }
 
     console.log(`Processing ${files.length} file(s) for upload to Cloudinary`);
-    
+
     const uploads = await Promise.all(
       files.map(async (file) => {
         try {
@@ -485,7 +485,7 @@ exports.uploadServices = async (req) => {
           if (!file.path) {
             throw new Error(`File path is missing for file: ${file.originalname || 'unknown'}`);
           }
-          
+
           // Upload to Cloudinary
           console.log(`Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`);
           const result = await cloudinary.uploader.upload(file.path, {
@@ -530,12 +530,12 @@ exports.uploadServices = async (req) => {
             http_code: uploadError.http_code,
             name: uploadError.name,
           });
-          
+
           // Optionally delete local file if upload fails
           if (fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
           }
-          
+
           // Re-throw with more context
           throw new Error(`Cloudinary upload failed: ${uploadError.message || uploadError}`);
         }
@@ -551,13 +551,13 @@ exports.uploadServices = async (req) => {
   } catch (error) {
     console.error("Cloudinary upload error:", error);
     console.error("Error stack:", error.stack);
-    
+
     // Check if it's a MongoDB connection error
     const mongoose = require("mongoose");
-    if (error.name === "MongoServerSelectionError" || 
-        error.message?.includes("buffering timed out") ||
-        error.message?.includes("connection") ||
-        mongoose.connection.readyState !== 1) {
+    if (error.name === "MongoServerSelectionError" ||
+      error.message?.includes("buffering timed out") ||
+      error.message?.includes("connection") ||
+      mongoose.connection.readyState !== 1) {
       return {
         status: false,
         statusCode: 503,
@@ -565,27 +565,27 @@ exports.uploadServices = async (req) => {
         data: {},
       };
     }
-    
+
     // Handle Cloudinary-specific errors
-    if (error.message?.includes("cloud_name is disabled") || 
-        error.message?.includes("Invalid cloud_name") ||
-        error.http_code === 401) {
+    if (error.message?.includes("cloud_name is disabled") ||
+      error.message?.includes("Invalid cloud_name") ||
+      error.http_code === 401) {
       return {
         status: false,
         statusCode: 500,
         message: "Cloudinary configuration error: The cloud_name is invalid or disabled. Please check your CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.",
-        data: { 
+        data: {
           error: "CloudinaryConfigError",
           details: "Verify your Cloudinary credentials are correct and the account is active"
         },
       };
     }
-    
+
     return {
       status: false,
       statusCode: 500,
       message: error.message || "Failed to upload files to Cloudinary",
-      data: { 
+      data: {
         error: error.name || "Unknown error",
         details: error.http_code ? `HTTP ${error.http_code}` : undefined
       },
@@ -780,28 +780,32 @@ exports.updateProfileServices = async (req) => {
         profile_image,
         email,
         gender,
-        skills,
+        // skills,
         experience,
-        qualifications,
+        // qualifications,
         resume_url,
-        job_type,
+        // job_type,
         description,
         intro_video_url,
+        linkedin_url,
+        insta_url
       } = req.body;
 
-      if (skills && Array.isArray(skills)) {
-        updateFields.skills = skills;
-      }
+      // if (skills && Array.isArray(skills)) {
+      //   updateFields.skills = skills;
+      // }
 
       // Partial updates only
       if (name) updateFields.name = name;
       if (email) updateFields.email = email;
       if (gender) updateFields.gender = gender;
       if (experience) updateFields.experience = experience;
-      if (qualifications) updateFields.qualifications = qualifications;
+      if (linkedin_url) updateFields.linkedin_url = linkedin_url;
+      if (insta_url) updateFields.insta_url = insta_url;
+      // if (qualifications) updateFields.qualifications = qualifications;
       if (resume_url)
         updateFields.resume_url = buildAbsoluteUrl(resume_url, req);
-      if (job_type) updateFields.job_type = job_type;
+      // if (job_type) updateFields.job_type = job_type;
       if (description) updateFields.description = description;
       if (intro_video_url)
         updateFields.intro_video_url = buildAbsoluteUrl(intro_video_url, req);

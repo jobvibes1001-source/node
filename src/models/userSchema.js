@@ -71,7 +71,7 @@ const userSchema = new mongoose.Schema(
     // Candidate job preferences
     job_type: {
       type: [String], // 👈 array of strings
-      enum: ["freelance", "full_time", "part_time"],
+       enum: ["freelance", "full_time", "part_time"],
       default: [],
     },
 
@@ -84,6 +84,8 @@ const userSchema = new mongoose.Schema(
     team_size: { type: Number, min: 1 }, // 👈 NEW
     position: { type: String }, // 👈 NEW
     representative_role: { type: String },
+    linkedin_url: { type: String },
+    insta_url: { type: String },
 
     // Step 3 fields
     skip_step_3: { type: Boolean, default: false },
