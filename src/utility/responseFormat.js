@@ -30,6 +30,8 @@ exports.destructureUser = (user) => {
     team_size,
     position,
     representative_role,
+    linkedin_url,
+    insta_url,
   } = user;
 
   const baseData = {
@@ -45,6 +47,8 @@ exports.destructureUser = (user) => {
     description,
     status,
     skip_step_3,
+    linkedin_url,
+    insta_url,
   };
 
   if (role === "candidate") {
@@ -55,6 +59,7 @@ exports.destructureUser = (user) => {
       experience,
       resume_url,
       job_type,
+      
     };
   }
 
