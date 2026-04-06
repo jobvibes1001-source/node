@@ -59,7 +59,7 @@ exports.destructureUser = (user) => {
       experience,
       resume_url,
       job_type,
-      
+
     };
   }
 
@@ -101,9 +101,8 @@ exports.getUserStepStatus = async (user) => {
 
   // Step 2: role-specific info
   if (
-    user.role === "candidate" &&
-    Array.isArray(user.skills) &&
-    user.skills.length > 0
+    user.role === "candidate" && 
+    user.experience.length > -1 
   ) {
     step2Completed = true;
   }
