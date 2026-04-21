@@ -2,6 +2,7 @@ const { sendResponse } = require("../../utility/responseFormat");
 const {
   requestOtpService,
   verifyOtpService,
+  resendOtpService,
   registerService,
   loginService,
   logoutService,
@@ -35,10 +36,10 @@ exports.requestOtpController = async (req, res, next) => {
 exports.verifyOtpController = async (req, res, next) => {
   try {
     console.log("Request body in verifyOtpController:--", req.body);
-    const { phone, fcm_token } = req.body;
+    const { phone, otp } = req.body;
     const data = await verifyOtpService(
       phone,
-      fcm_token,
+      otp,
       req.headers["user-agent"],
       req.ip
     );
@@ -46,6 +47,18 @@ exports.verifyOtpController = async (req, res, next) => {
     console.log("Response in verifyOtpController:--", data);
   } catch (error) {
     console.log("Error in verifyOtpController:--", error);
+    next(error);
+  }
+};
+
+exports.resendOtpController = async (req, res, next) => {
+  try {
+    console.log("Request body in resendOtpController:--", req.body);
+    const data = await resendOtpService(req.body.phone);
+    sendResponse(res, data);
+    console.log("Response in resendOtpController:--", data);
+  } catch (error) {
+    console.log("Error in resendOtpController:--", error);
     next(error);
   }
 };

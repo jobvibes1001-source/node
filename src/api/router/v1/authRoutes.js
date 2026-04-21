@@ -5,6 +5,7 @@ const validatorResponse = require("../../../utility/joiValidator");
 const {
   otpRequestSchema,
   otpVerifySchema,
+  otpResendSchema,
   registerSchema,
   loginSchema,
   refreshSchema,
@@ -16,6 +17,7 @@ const {
 const {
   requestOtpController,
   verifyOtpController,
+  resendOtpController,
   registerController,
   loginController,
   logoutController,
@@ -41,6 +43,7 @@ const { authenticate } = require("../../middleware/authMiddleware");
 // OTP
 router.post("/otp", validatorResponse(otpRequestSchema), requestOtpController);
 router.post("/verify", validatorResponse(otpVerifySchema), verifyOtpController);
+router.post("/otp/resend", validatorResponse(otpResendSchema), resendOtpController);
 
 // Core auth
 

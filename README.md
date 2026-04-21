@@ -49,6 +49,8 @@ Edit the `.env` file with your configuration:
 - **SMTP_HOST**, **SMTP_PORT**, **SMTP_USER**, **SMTP_PASS**: For email services
 - **CLOUDINARY_***: For image upload functionality
 - **EMAIL_USER**, **EMAIL_PASS**: Alternative email configuration
+- **SMS_OTP_API_URL**: OTP provider endpoint (default: `https://a2technosoft.services/api/v1/sms-secure-push`)
+- **SMS_OTP_API_KEY**: OTP provider secret key used for send/resend OTP
 
 ### 4. Start MongoDB (if using local MongoDB)
 
@@ -98,6 +100,94 @@ Example endpoints:
 - `POST /api/v1/auth/token-register` - Register with Firebase token
 - `POST /api/v1/auth/otp` - Request OTP
 - `POST /api/v1/auth/verify` - Verify OTP
+- `POST /api/v1/auth/otp/resend` - Resend OTP
+
+## OTP API Documentation
+
+### 1) Send OTP
+
+- URL: `POST /api/v1/auth/otp`
+
+Request body:
+
+```json
+{
+  "phone": "9876543210"
+}
+```
+
+Success response:
+
+```json
+{
+  "status": true,
+  "statusCode": 200,
+  "message": "OTP sent successfully",
+  "data": {
+    "phone": "9876543210",
+    "ttl": 300
+  }
+}
+```
+
+### 2) Verify OTP (returns login token + user keys)
+
+- URL: `POST /api/v1/auth/verify`
+
+Request body:
+
+```json
+{
+  "phone": "9876543210",
+  "otp": "123456"
+}
+```
+
+Success response:
+
+```json
+{
+  "status": true,
+  "statusCode": 200,
+  "message": "OTP verified",
+  "data": {
+    "id": "USER_ID",
+    "phone_number": "9876543210",
+    "role": "candidate",
+    "tokens": {
+      "accessToken": "ACCESS_TOKEN",
+      "refreshToken": "REFRESH_TOKEN",
+      "expiresIn": 2592000
+    }
+  }
+}
+```
+
+### 3) Resend OTP
+
+- URL: `POST /api/v1/auth/otp/resend`
+
+Request body:
+
+```json
+{
+  "phone": "9876543210"
+}
+```
+
+Success response:
+
+```json
+{
+  "status": true,
+  "statusCode": 200,
+  "message": "OTP resent successfully",
+  "data": {
+    "phone": "9876543210",
+    "ttl": 300
+  }
+}
+```
 
 ## Troubleshooting
 
@@ -160,7 +250,7 @@ node/
 - The server uses Express.js framework
 - MongoDB connection is non-blocking (server starts even if DB isn't ready)
 - JWT tokens are used for authentication
-- Firebase Admin SDK is used for custom token generation
+- OTP login is handled through external SMS OTP provider API
 - Environment variables are loaded using `dotenv`
 
 ## Production Deployment

@@ -6,7 +6,11 @@ exports.otpRequestSchema = Joi.object({
 
 exports.otpVerifySchema = Joi.object({
   phone: Joi.string().pattern(new RegExp("^[0-9]{10,15}$")).required(),
-  fcm_token: Joi.string().required(),
+  otp: Joi.string().pattern(new RegExp("^[0-9]{4,8}$")).required(),
+});
+
+exports.otpResendSchema = Joi.object({
+  phone: Joi.string().pattern(new RegExp("^[0-9]{10,15}$")).required(),
 });
 
 exports.tokenRegisterSchema = Joi.object({

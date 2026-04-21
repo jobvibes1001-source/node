@@ -3,7 +3,7 @@ const { Types } = mongoose;
 const User = require("../../models/userSchema");
 const Session = require("../../models/sessionSchema");
 const Otp = require("../../models/otpSchema");
-const admin = require("../../utility/firebase");
+const axios = require("axios");
 const {
   hashPassword,
   comparePassword,
@@ -31,34 +31,61 @@ const transporter = nodemailer.createTransport({
   connectionTimeout: 20000, // 20 seconds
 });
 
+const SMS_OTP_API_URL =
+  process.env.SMS_OTP_API_URL ||
+  "https://a2technosoft.services/api/v1/sms-secure-push";
+const SMS_OTP_API_KEY =
+  process.env.SMS_OTP_API_KEY ||
+  "IcVavPGPvzWnONAss8O6CmDO5i6ZplyvNEQgZKUFtgIjcymJHKMk";
+const OTP_EXPIRY_SECONDS = 300;
+
+const sendOtpToProvider = async ({ mobile, otp }) => {
+  const form = new URLSearchParams();
+  form.append("key", SMS_OTP_API_KEY);
+  form.append("mobile", mobile);
+  form.append("otp", otp);
+
+  return axios({
+    method: "post",
+    maxBodyLength: Infinity,
+    url: SMS_OTP_API_URL,
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    data: form.toString(),
+  });
+};
+
 // --- OTP Services ---
 exports.requestOtpService = async (phone) => {
   try {
-    const firebaseToken = await admin.auth().createCustomToken(phone);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins expiry
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000);
 
-    await Otp.create({
-      phone,
-      fcm_token: firebaseToken,
-      expires_at: expiresAt,
-    });
+    await sendOtpToProvider({ mobile: phone, otp });
+
+    await Otp.deleteMany({ phone });
+    await Otp.create({ phone, otp, expires_at: expiresAt });
 
     return {
       status: true,
       statusCode: 200,
-      message: "OTP token generated",
-      data: { token: firebaseToken, ttl: 300 },
+      message: "OTP sent successfully",
+      data: { phone, ttl: OTP_EXPIRY_SECONDS },
     };
   } catch (error) {
-    return { status: false, statusCode: 500, message: error.message, data: {} };
+    return {
+      status: false,
+      statusCode: 500,
+      message: error?.response?.data?.message || error.message,
+      data: {},
+    };
   }
 };
 
 exports.verifyOtpService = async (
   phone,
-  fcm_token,
-  role,
-  gender,
+  otp,
   userAgent = "",
   ip = ""
 ) => {
@@ -73,7 +100,7 @@ exports.verifyOtpService = async (
       };
     }
 
-    const otpRecord = await Otp.findOne({ phone, fcm_token }).sort({
+    const otpRecord = await Otp.findOne({ phone, otp }).sort({
       createdAt: -1,
     });
 
@@ -95,8 +122,8 @@ exports.verifyOtpService = async (
         email: `${phone}@placeholder.local`,
         password,
         confirm_password: password,
-        role: role || "candidate",
-        gender: gender || "prefer_not_to_say",
+        role: "candidate",
+        gender: "prefer_not_to_say",
         deleted: 0, // New user is not deleted
       });
     }
@@ -118,6 +145,7 @@ exports.verifyOtpService = async (
     });
 
     const tokens = issueTokens(user._id.toString(), session._id.toString());
+    const getStatus = await getUserStepStatus(user);
 
     await Otp.deleteOne({ _id: otpRecord._id });
 
@@ -125,7 +153,7 @@ exports.verifyOtpService = async (
       status: true,
       statusCode: 200,
       message: "OTP verified",
-      data: { ...destructureUser(user), tokens },
+      data: { ...destructureUser(user), tokens, ...getStatus },
     };
   } catch (error) {
     console.error("Error in verifyOtpService:", error);
@@ -148,6 +176,32 @@ exports.verifyOtpService = async (
       statusCode: 500, 
       message: error.message || "Internal server error", 
       data: {} 
+    };
+  }
+};
+
+exports.resendOtpService = async (phone) => {
+  try {
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000);
+
+    await sendOtpToProvider({ mobile: phone, otp });
+
+    await Otp.deleteMany({ phone });
+    await Otp.create({ phone, otp, expires_at: expiresAt });
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "OTP resent successfully",
+      data: { phone, ttl: OTP_EXPIRY_SECONDS },
+    };
+  } catch (error) {
+    return {
+      status: false,
+      statusCode: 500,
+      message: error?.response?.data?.message || error.message,
+      data: {},
     };
   }
 };
