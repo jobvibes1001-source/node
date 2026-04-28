@@ -51,6 +51,7 @@ Edit the `.env` file with your configuration:
 - **EMAIL_USER**, **EMAIL_PASS**: Alternative email configuration
 - **SMS_OTP_API_URL**: OTP provider endpoint (default: `https://a2technosoft.services/api/v1/sms-secure-push`)
 - **SMS_OTP_API_KEY**: OTP provider secret key used for send/resend OTP
+- **SMS_OTP_COUNTRY_CODE**: Prefix used when phone has 10 digits (default: `91`)
 
 ### 4. Start MongoDB (if using local MongoDB)
 

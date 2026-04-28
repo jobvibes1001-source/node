@@ -38,33 +38,61 @@ const SMS_OTP_API_KEY =
   process.env.SMS_OTP_API_KEY ||
   "IcVavPGPvzWnONAss8O6CmDO5i6ZplyvNEQgZKUFtgIjcymJHKMk";
 const OTP_EXPIRY_SECONDS = 300;
+const SMS_OTP_COUNTRY_CODE = process.env.SMS_OTP_COUNTRY_CODE || "91";
+const FormDataImpl = globalThis.FormData || require("form-data");
+
+const normalizeOtpMobile = (mobile) => {
+  const clean = String(mobile || "").replace(/\D/g, "");
+  if (clean.length === 10) return `${SMS_OTP_COUNTRY_CODE}${clean}`;
+  return clean;
+};
 
 const sendOtpToProvider = async ({ mobile, otp }) => {
-  const form = new URLSearchParams();
+  const normalizedMobile = normalizeOtpMobile(mobile);
+  const form = new FormDataImpl();
   form.append("key", SMS_OTP_API_KEY);
-  form.append("mobile", mobile);
+  form.append("mobile", normalizedMobile);
   form.append("otp", otp);
 
-  return axios({
+  const response = await axios({
     method: "post",
     maxBodyLength: Infinity,
     url: SMS_OTP_API_URL,
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+      ...(typeof form.getHeaders === "function" ? form.getHeaders() : {}),
     },
-    data: form.toString(),
+    data: form,
   });
+
+  const providerData = response?.data;
+  const normalizedText = JSON.stringify(providerData || {}).toLowerCase();
+  const providerSuccess =
+    providerData?.status === true ||
+    providerData?.success === true ||
+    providerData?.code === 200 ||
+    normalizedText.includes("success");
+
+  if (!providerSuccess) {
+    throw new Error(
+      providerData?.message ||
+        providerData?.msg ||
+        "OTP provider rejected request"
+    );
+  }
+
+  return response;
 };
 
 // --- OTP Services ---
 exports.requestOtpService = async (phone) => {
   try {
+    const normalizedPhone = normalizeOtpMobile(phone);
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000);
 
-    await sendOtpToProvider({ mobile: phone, otp });
+    await sendOtpToProvider({ mobile: normalizedPhone, otp });
 
-    await Otp.deleteMany({ phone });
+    await Otp.deleteMany({ phone: { $in: [phone, normalizedPhone] } });
     await Otp.create({ phone, otp, expires_at: expiresAt });
 
     return {
@@ -90,6 +118,7 @@ exports.verifyOtpService = async (
   ip = ""
 ) => {
   try {
+    const normalizedPhone = normalizeOtpMobile(phone);
     // Check if MongoDB is connected
     if (mongoose.connection.readyState !== 1) {
       return {
@@ -100,7 +129,10 @@ exports.verifyOtpService = async (
       };
     }
 
-    const otpRecord = await Otp.findOne({ phone, otp }).sort({
+    const otpRecord = await Otp.findOne({
+      phone: { $in: [phone, normalizedPhone] },
+      otp,
+    }).sort({
       createdAt: -1,
     });
 
@@ -113,11 +145,13 @@ exports.verifyOtpService = async (
       };
     }
 
-    let user = await User.findOne({ phone_number: phone });
+    let user = await User.findOne({
+      phone_number: { $in: [phone, normalizedPhone] },
+    });
     if (!user) {
       const password = await hashPassword("otp_only");
       user = await User.create({
-        user_name: phone,
+        user_name: phone || normalizedPhone,
         phone_number: phone,
         email: `${phone}@placeholder.local`,
         password,
@@ -182,12 +216,13 @@ exports.verifyOtpService = async (
 
 exports.resendOtpService = async (phone) => {
   try {
+    const normalizedPhone = normalizeOtpMobile(phone);
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000);
 
-    await sendOtpToProvider({ mobile: phone, otp });
+    await sendOtpToProvider({ mobile: normalizedPhone, otp });
 
-    await Otp.deleteMany({ phone });
+    await Otp.deleteMany({ phone: { $in: [phone, normalizedPhone] } });
     await Otp.create({ phone, otp, expires_at: expiresAt });
 
     return {
