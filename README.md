@@ -49,8 +49,10 @@ Edit the `.env` file with your configuration:
 - **SMTP_HOST**, **SMTP_PORT**, **SMTP_USER**, **SMTP_PASS**: For email services
 - **CLOUDINARY_***: For image upload functionality
 - **EMAIL_USER**, **EMAIL_PASS**: Alternative email configuration
-- **SMS_OTP_API_URL**: OTP provider endpoint (default: `https://a2technosoft.services/api/v1/sms-secure-push`)
-- **SMS_OTP_API_KEY**: OTP provider secret key used for send/resend OTP
+- **SMS_OTP_API_URL**: OTP provider endpoint (default: `https://ninzasms.in.net/auth/send_sms`)
+- **SMS_OTP_API_KEY**: NinzaSMS API key used in `authorization` header
+- **SMS_OTP_SENDER_ID**: NinzaSMS sender id (default: `15901`)
+- **SMS_OTP_ROUTE**: NinzaSMS route value (default: `waninza`)
 - **SMS_OTP_COUNTRY_CODE**: Prefix used when phone has 10 digits (default: `91`)
 
 ### 4. Start MongoDB (if using local MongoDB)
@@ -108,6 +110,18 @@ Example endpoints:
 ### 1) Send OTP
 
 - URL: `POST /api/v1/auth/otp`
+- Provider Call: `POST https://ninzasms.in.net/auth/send_sms`
+
+Provider payload sent by backend:
+
+```json
+{
+  "sender_id": "15901",
+  "variables_values": "123456",
+  "numbers": "919876543210",
+  "rout": "waninza"
+}
+```
 
 Request body:
 

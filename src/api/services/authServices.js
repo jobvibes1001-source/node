@@ -33,13 +33,13 @@ const transporter = nodemailer.createTransport({
 
 const SMS_OTP_API_URL =
   process.env.SMS_OTP_API_URL ||
-  "https://a2technosoft.services/api/v1/sms-secure-push";
+  "https://ninzasms.in.net/auth/send_sms";
 const SMS_OTP_API_KEY =
-  process.env.SMS_OTP_API_KEY ||
-  "IcVavPGPvzWnONAss8O6CmDO5i6ZplyvNEQgZKUFtgIjcymJHKMk";
+  process.env.SMS_OTP_API_KEY || "NINZASMSa58bf87a73b415ea12a2e7efff62ddcd4b3e0c662471edf238c1";
+const SMS_OTP_SENDER_ID = process.env.SMS_OTP_SENDER_ID || "15901";
+const SMS_OTP_ROUTE = process.env.SMS_OTP_ROUTE || "waninza";
 const OTP_EXPIRY_SECONDS = 300;
 const SMS_OTP_COUNTRY_CODE = process.env.SMS_OTP_COUNTRY_CODE || "91";
-const FormDataImpl = globalThis.FormData || require("form-data");
 
 const normalizeOtpMobile = (mobile) => {
   const clean = String(mobile || "").replace(/\D/g, "");
@@ -49,19 +49,20 @@ const normalizeOtpMobile = (mobile) => {
 
 const sendOtpToProvider = async ({ mobile, otp }) => {
   const normalizedMobile = normalizeOtpMobile(mobile);
-  const form = new FormDataImpl();
-  form.append("key", SMS_OTP_API_KEY);
-  form.append("mobile", normalizedMobile);
-  form.append("otp", otp);
-
   const response = await axios({
     method: "post",
     maxBodyLength: Infinity,
     url: SMS_OTP_API_URL,
     headers: {
-      ...(typeof form.getHeaders === "function" ? form.getHeaders() : {}),
+      authorization: SMS_OTP_API_KEY,
+      "content-type": "application/json",
     },
-    data: form,
+    data: {
+      sender_id: SMS_OTP_SENDER_ID,
+      variables_values: otp,
+      numbers: normalizedMobile,
+      rout: SMS_OTP_ROUTE,
+    },
   });
 
   const providerData = response?.data;
