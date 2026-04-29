@@ -37,7 +37,7 @@ const SMS_OTP_API_URL =
 const SMS_OTP_API_KEY =
   process.env.SMS_OTP_API_KEY || "NINZASMSa58bf87a73b415ea12a2e7efff62ddcd4b3e0c662471edf238c1";
 const SMS_OTP_SENDER_ID = process.env.SMS_OTP_SENDER_ID || "15901";
-const SMS_OTP_ROUTE = process.env.SMS_OTP_ROUTE || "waninza";
+const SMS_OTP_ROUTE = process.env.SMS_OTP_ROUTE || "";
 const OTP_EXPIRY_SECONDS = 300;
 const SMS_OTP_COUNTRY_CODE = process.env.SMS_OTP_COUNTRY_CODE || "91";
 
@@ -49,6 +49,13 @@ const normalizeOtpMobile = (mobile) => {
 
 const sendOtpToProvider = async ({ mobile, otp }) => {
   const normalizedMobile = normalizeOtpMobile(mobile);
+  const payload = {
+    sender_id: SMS_OTP_SENDER_ID,
+    variables_values: otp,
+    numbers: normalizedMobile,
+  };
+  if (SMS_OTP_ROUTE) payload.rout = SMS_OTP_ROUTE;
+
   const response = await axios({
     method: "post",
     maxBodyLength: Infinity,
@@ -57,26 +64,37 @@ const sendOtpToProvider = async ({ mobile, otp }) => {
       authorization: SMS_OTP_API_KEY,
       "content-type": "application/json",
     },
-    data: {
-      sender_id: SMS_OTP_SENDER_ID,
-      variables_values: otp,
-      numbers: normalizedMobile,
-      rout: SMS_OTP_ROUTE,
-    },
+    data: payload,
   });
 
   const providerData = response?.data;
   const normalizedText = JSON.stringify(providerData || {}).toLowerCase();
-  const providerSuccess =
-    providerData?.status === true ||
-    providerData?.success === true ||
-    providerData?.code === 200 ||
-    normalizedText.includes("success");
 
-  if (!providerSuccess) {
+  // NinzaSMS may return non-standard success payloads (queued/submitted/etc).
+  // Treat as failure only when response explicitly indicates an error.
+  const explicitFailure =
+    providerData?.status === 0 ||
+    providerData?.status === "0" ||
+    providerData?.status === false ||
+    providerData?.success === false ||
+    providerData?.error === true ||
+    (typeof providerData?.status === "string" &&
+      ["failed", "error", "rejected"].includes(
+        providerData.status.toLowerCase()
+      )) ||
+    (typeof providerData?.success === "string" &&
+      ["failed", "error", "rejected"].includes(
+        providerData.success.toLowerCase()
+      )) ||
+    normalizedText.includes("invalid") ||
+    normalizedText.includes("failed") ||
+    normalizedText.includes("error");
+
+  if (explicitFailure) {
     throw new Error(
       providerData?.message ||
         providerData?.msg ||
+        providerData?.error_message ||
         "OTP provider rejected request"
     );
   }
@@ -103,10 +121,14 @@ exports.requestOtpService = async (phone) => {
       data: { phone, ttl: OTP_EXPIRY_SECONDS },
     };
   } catch (error) {
+    const providerError =
+      error?.response?.data?.message ||
+      error?.response?.data?.msg ||
+      error?.response?.data?.error_message;
     return {
       status: false,
       statusCode: 500,
-      message: error?.response?.data?.message || error.message,
+      message: providerError || error.message,
       data: {},
     };
   }
@@ -233,10 +255,14 @@ exports.resendOtpService = async (phone) => {
       data: { phone, ttl: OTP_EXPIRY_SECONDS },
     };
   } catch (error) {
+    const providerError =
+      error?.response?.data?.message ||
+      error?.response?.data?.msg ||
+      error?.response?.data?.error_message;
     return {
       status: false,
       statusCode: 500,
-      message: error?.response?.data?.message || error.message,
+      message: providerError || error.message,
       data: {},
     };
   }

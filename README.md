@@ -52,7 +52,7 @@ Edit the `.env` file with your configuration:
 - **SMS_OTP_API_URL**: OTP provider endpoint (default: `https://ninzasms.in.net/auth/send_sms`)
 - **SMS_OTP_API_KEY**: NinzaSMS API key used in `authorization` header
 - **SMS_OTP_SENDER_ID**: NinzaSMS sender id (default: `15901`)
-- **SMS_OTP_ROUTE**: NinzaSMS route value (default: `waninza`)
+- **SMS_OTP_ROUTE**: Optional NinzaSMS route (`waninza` for WhatsApp). Keep empty for normal SMS.
 - **SMS_OTP_COUNTRY_CODE**: Prefix used when phone has 10 digits (default: `91`)
 
 ### 4. Start MongoDB (if using local MongoDB)
@@ -118,8 +118,16 @@ Provider payload sent by backend:
 {
   "sender_id": "15901",
   "variables_values": "123456",
-  "numbers": "919876543210",
-  "rout": "waninza"
+  "numbers": "919876543210"
+}
+```
+
+NinzaSMS response format:
+
+```json
+{
+  "status": 1,
+  "msg": "OTP Sent Successfully via NinzaSMS"
 }
 ```
 
