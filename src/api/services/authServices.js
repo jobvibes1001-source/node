@@ -176,11 +176,8 @@ exports.verifyOtpService = async (
       user = await User.create({
         user_name: phone || normalizedPhone,
         phone_number: phone,
-        email: `${phone}@placeholder.local`,
         password,
         confirm_password: password,
-        role: "candidate",
-        gender: "prefer_not_to_say",
         deleted: 0, // New user is not deleted
       });
     }
@@ -203,6 +200,7 @@ exports.verifyOtpService = async (
 
     const tokens = issueTokens(user._id.toString(), session._id.toString());
     const getStatus = await getUserStepStatus(user);
+    const userData = destructureUser(user);
 
     await Otp.deleteOne({ _id: otpRecord._id });
 
@@ -210,7 +208,19 @@ exports.verifyOtpService = async (
       status: true,
       statusCode: 200,
       message: "OTP verified",
-      data: { ...destructureUser(user), tokens, ...getStatus },
+      data: {
+        id: userData.id,
+        name: userData.name || "",
+        email: userData.email || "",
+        gender: userData.gender || "",
+        role: userData.role || "",
+        phone_number: userData.phone_number,
+        tokens,
+        step1Completed: !!getStatus.step1Completed,
+        step2Completed: !!getStatus.step2Completed,
+        step3Completed: !!getStatus.step3Completed,
+        ...userData,
+      },
     };
   } catch (error) {
     console.error("Error in verifyOtpService:", error);
