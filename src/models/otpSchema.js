@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const otpSchema = new mongoose.Schema(
   {
     phone: { type: String },
+    email: { type: String, lowercase: true, trim: true },
     code: { type: String }, // optional if using Firebase token
     fcm_token: { type: String }, // store Firebase token
     expires_at: { type: Date, required: true },

@@ -665,11 +665,15 @@ exports.sendEmailOtpService = async (req) => {
       };
     }
 
-    // 1. Generate OTP
-    const otp = "123456";
+    // Generate dynamic OTP
+    const otp = generateOtp();
 
-    // 3. Save OTP in DB
+    // Save latest OTP in DB (invalidate older OTPs for same user/email)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+    await Otp.deleteMany({
+      user_id: new Types.ObjectId(userId),
+      email,
+    });
     await Otp.create({
       email,
       otp,
@@ -682,22 +686,25 @@ exports.sendEmailOtpService = async (req) => {
       otp,
     };
 
-    await sendEmail(email, "verifyEmail", emailData);
-
-    // if (!emailResult.status) {
-    //   throw new Error(emailResult.message);
-    // }
+    const emailResult = await sendEmail(email, "verifyEmail", emailData);
+    if (!emailResult?.status) {
+      return {
+        status: false,
+        statusCode: 500,
+        message: emailResult?.message || "Failed to send OTP email",
+        data: {},
+      };
+    }
 
     return {
       status: true,
+      statusCode: 200,
       message: "OTP sent to email",
-      data: {
-        otp,
-      },
+      data: {},
     };
   } catch (error) {
     console.error("sendEmailOtpService error:", error);
-    return { status: false, message: error.message, data: {} };
+    return { status: false, statusCode: 500, message: error.message, data: {} };
   }
 };
 
@@ -713,19 +720,37 @@ exports.validateEmailOtpService = async (req) => {
       otp,
     }).sort({ createdAt: -1 });
 
-    if (!otpRecord || otpRecord.expires_at < new Date()) {
-      // OTP valid, remove record
+    if (!otpRecord) {
+      return {
+        status: false,
+        statusCode: 400,
+        message: "Invalid OTP",
+        data: {},
+      };
+    }
+
+    if (otpRecord.expires_at < new Date()) {
       await Otp.deleteOne({ _id: otpRecord._id });
-      return { status: false, message: "Invalid or expired OTP", data: {} };
+      return {
+        status: false,
+        statusCode: 400,
+        message: "OTP expired",
+        data: {},
+      };
     }
 
     // OTP valid, remove record
     await Otp.deleteOne({ _id: otpRecord._id });
 
-    return { status: true, message: "OTP verified successfully", data: {} };
+    return {
+      status: true,
+      statusCode: 200,
+      message: "OTP verified successfully",
+      data: {},
+    };
   } catch (error) {
     console.error("validateEmailOtpService error:", error);
-    return { status: false, message: error.message, data: {} };
+    return { status: false, statusCode: 500, message: error.message, data: {} };
   }
 };
 
