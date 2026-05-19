@@ -6,6 +6,9 @@ const {
   otpRequestSchema,
   otpVerifySchema,
   otpResendSchema,
+  otpSendEmailSchema,
+  otpResendEmailSchema,
+  otpVerifyEmailSchema,
   registerSchema,
   loginSchema,
   refreshSchema,
@@ -35,6 +38,9 @@ const {
   tokenRegisterController,
   validateOtpController,
   sendVerifyEmailController,
+  otpSendEmailController,
+  otpResendEmailController,
+  otpVerifyEmailController,
   deleteAccountController,
 } = require("../../controllers/authController");
 
@@ -44,6 +50,21 @@ const { authenticate } = require("../../middleware/authMiddleware");
 router.post("/otp", validatorResponse(otpRequestSchema), requestOtpController);
 router.post("/verify", validatorResponse(otpVerifySchema), verifyOtpController);
 router.post("/otp/resend", validatorResponse(otpResendSchema), resendOtpController);
+router.post(
+  "/otp_send_email",
+  validatorResponse(otpSendEmailSchema),
+  otpSendEmailController
+);
+router.post(
+  "/otp_resend_email",
+  validatorResponse(otpResendEmailSchema),
+  otpResendEmailController
+);
+router.post(
+  "/otp_verify_email",
+  validatorResponse(otpVerifyEmailSchema),
+  otpVerifyEmailController
+);
 
 // Core auth
 

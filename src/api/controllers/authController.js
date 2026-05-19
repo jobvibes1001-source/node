@@ -16,6 +16,9 @@ const {
   tokenRegisterService,
   sendEmailOtpService,
   validateEmailOtpService,
+  otpSendEmailService,
+  otpResendEmailService,
+  otpVerifyEmailService,
   deleteAccountService,
 } = require("../services/authServices");
 
@@ -228,6 +231,33 @@ exports.validateOtpController = async (req, res, next) => {
     console.log("Response in validateOtpController:--", data);
   } catch (error) {
     console.log("Error in validateOtpController:--", error);
+    next(error);
+  }
+};
+
+exports.otpSendEmailController = async (req, res, next) => {
+  try {
+    const data = await otpSendEmailService(req.body.email);
+    sendResponse(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.otpVerifyEmailController = async (req, res, next) => {
+  try {
+    const data = await otpVerifyEmailService(req.body.email, req.body.otp);
+    sendResponse(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.otpResendEmailController = async (req, res, next) => {
+  try {
+    const data = await otpResendEmailService(req.body.email);
+    sendResponse(res, data);
+  } catch (error) {
     next(error);
   }
 };

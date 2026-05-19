@@ -653,7 +653,7 @@ exports.updateProfile = async (id, body) => {
 // --- Send OTP Service ---
 exports.sendEmailOtpService = async (req) => {
   try {
-    const userId = req.user.sub;
+    const userId = req.user?.sub;
     const { email } = req.body;
 
     if (!email) {
@@ -671,15 +671,16 @@ exports.sendEmailOtpService = async (req) => {
     // Save latest OTP in DB (invalidate older OTPs for same user/email)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
     await Otp.deleteMany({
-      user_id: new Types.ObjectId(userId),
+      ...(userId ? { user_id: new Types.ObjectId(userId) } : {}),
       email,
     });
-    await Otp.create({
+    const otpPayload = {
       email,
       otp,
-      user_id: userId,
       expires_at: expiresAt,
-    });
+    };
+    if (userId) otpPayload.user_id = userId;
+    await Otp.create(otpPayload);
 
     const emailData = {
       subject: "Your Email Verification OTP",
@@ -711,14 +712,13 @@ exports.sendEmailOtpService = async (req) => {
 // --- Validate OTP Service ---
 exports.validateEmailOtpService = async (req) => {
   try {
-    const userId = req.user.sub;
+    const userId = req.user?.sub;
     console.log("------ ~ userId:------", userId);
     const { otp } = req.body;
 
-    const otpRecord = await Otp.findOne({
-      user_id: new Types.ObjectId(userId),
-      otp,
-    }).sort({ createdAt: -1 });
+    const query = { otp };
+    if (userId) query.user_id = new Types.ObjectId(userId);
+    const otpRecord = await Otp.findOne(query).sort({ createdAt: -1 });
 
     if (!otpRecord) {
       return {
@@ -750,6 +750,87 @@ exports.validateEmailOtpService = async (req) => {
     };
   } catch (error) {
     console.error("validateEmailOtpService error:", error);
+    return { status: false, statusCode: 500, message: error.message, data: {} };
+  }
+};
+
+// --- Public Email OTP APIs (independent of phone OTP flow) ---
+exports.otpSendEmailService = async (email) => {
+  try {
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await Otp.deleteMany({ email });
+    await Otp.create({
+      email,
+      otp,
+      expires_at: expiresAt,
+    });
+
+    const emailData = {
+      subject: "Your Email Verification OTP",
+      otp,
+    };
+
+    const emailResult = await sendEmail(email, "verifyEmail", emailData);
+    if (!emailResult?.status) {
+      return {
+        status: false,
+        statusCode: 500,
+        message: emailResult?.message || "Failed to send OTP email",
+        data: {},
+      };
+    }
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "OTP sent to email",
+      data: { email, ttl: 900 },
+    };
+  } catch (error) {
+    console.error("otpSendEmailService error:", error);
+    return { status: false, statusCode: 500, message: error.message, data: {} };
+  }
+};
+
+exports.otpResendEmailService = async (email) => {
+  return exports.otpSendEmailService(email);
+};
+
+exports.otpVerifyEmailService = async (email, otp) => {
+  try {
+    const otpRecord = await Otp.findOne({ email, otp }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return {
+        status: false,
+        statusCode: 400,
+        message: "Invalid OTP",
+        data: {},
+      };
+    }
+
+    if (otpRecord.expires_at < new Date()) {
+      await Otp.deleteOne({ _id: otpRecord._id });
+      return {
+        status: false,
+        statusCode: 400,
+        message: "OTP expired",
+        data: {},
+      };
+    }
+
+    await Otp.deleteOne({ _id: otpRecord._id });
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "OTP verified successfully",
+      data: { emailVerified: true },
+    };
+  } catch (error) {
+    console.error("otpVerifyEmailService error:", error);
     return { status: false, statusCode: 500, message: error.message, data: {} };
   }
 };

@@ -198,16 +198,80 @@ Request body:
 }
 ```
 
+### 4) Send Email OTP (separate API)
+
+- URL: `POST /api/v1/auth/otp_send_email`
+
+Request body:
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
 Success response:
 
 ```json
 {
   "status": true,
   "statusCode": 200,
-  "message": "OTP resent successfully",
+  "message": "OTP sent to email",
   "data": {
-    "phone": "9876543210",
-    "ttl": 300
+    "email": "user@example.com",
+    "ttl": 900
+  }
+}
+```
+
+### 5) Verify Email OTP (separate API)
+
+- URL: `POST /api/v1/auth/otp_verify_email`
+
+Request body:
+
+```json
+{
+  "email": "user@example.com",
+  "otp": "123456"
+}
+```
+
+Success response:
+
+```json
+{
+  "status": true,
+  "statusCode": 200,
+  "message": "OTP verified successfully",
+  "data": {
+    "emailVerified": true
+  }
+}
+```
+
+### 6) Resend Email OTP (separate API)
+
+- URL: `POST /api/v1/auth/otp_resend_email`
+
+Request body:
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Success response:
+
+```json
+{
+  "status": true,
+  "statusCode": 200,
+  "message": "OTP sent to email",
+  "data": {
+    "email": "user@example.com",
+    "ttl": 900
   }
 }
 ```

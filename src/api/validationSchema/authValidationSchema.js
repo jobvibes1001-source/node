@@ -13,6 +13,19 @@ exports.otpResendSchema = Joi.object({
   phone: Joi.string().pattern(new RegExp("^[0-9]{10,15}$")).required(),
 });
 
+exports.otpSendEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
+exports.otpResendEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
+exports.otpVerifyEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
+  otp: Joi.string().pattern(new RegExp("^[0-9]{4,8}$")).required(),
+});
+
 exports.tokenRegisterSchema = Joi.object({
   token: Joi.string().required(),
   fcm_token: Joi.string().required(),
