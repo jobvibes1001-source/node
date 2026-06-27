@@ -12,6 +12,7 @@ const {
   uploadFileToGoogleDrive,
   deleteFileFromGoogleDrive,
   ensureRootFolder,
+  ensureUserCategoryFolder,
 } = require("../../utility/googleDriveStorage");
 
 // Helper function to build absolute URLs
@@ -570,6 +571,42 @@ exports.uploadServices = async (req) => {
       data: {
         error: error.name || "Unknown error",
         details: error.code ? `CODE ${error.code}` : undefined,
+      },
+    };
+  }
+};
+
+// --- Upload Health Service (Google Drive auth/folder check) ---
+exports.driveUploadHealthService = async (req) => {
+  try {
+    const userId = req.user?.sub || "health-check-user";
+    const rootFolderId = await ensureRootFolder();
+    const { userFolderId, categoryFolderId } = await ensureUserCategoryFolder({
+      userId,
+      category: "general-uploads",
+    });
+
+    return {
+      status: true,
+      statusCode: 200,
+      message: "Google Drive upload health is OK",
+      data: {
+        driveAuth: true,
+        rootFolderName: process.env.GOOGLE_DRIVE_ROOT_FOLDER_NAME || "JobVibes-metadata",
+        rootFolderId,
+        userFolderId,
+        categoryFolderId,
+        checkedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    return {
+      status: false,
+      statusCode: 500,
+      message: `Google Drive upload health failed: ${error.message}`,
+      data: {
+        driveAuth: false,
+        checkedAt: new Date().toISOString(),
       },
     };
   }

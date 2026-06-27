@@ -11,6 +11,7 @@ const {
   step2Controller,
   step3Controller,
   uploadController,
+  uploadHealthController,
   skillsController,
   updateController,
   getProfileController,
@@ -90,6 +91,7 @@ router.post("/step-3", authenticate, step3Controller);
 router.get("/skills", authenticate, skillsController);
 
 router.post("/update", authenticate, updateController);
+router.get("/upload/health", authenticate, uploadHealthController);
 
 // Accept files from multiple field names: "files", "uri", or any field
 router.post(

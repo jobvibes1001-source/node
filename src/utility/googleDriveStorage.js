@@ -14,6 +14,22 @@ const ENABLE_PUBLIC_READ =
 let driveClientPromise;
 let rootFolderIdPromise;
 
+const assertCredentialsFile = () => {
+  if (!fs.existsSync(CREDENTIALS_PATH)) {
+    throw new Error(
+      `Google Drive credentials file not found at: ${CREDENTIALS_PATH}`
+    );
+  }
+
+  const raw = fs.readFileSync(CREDENTIALS_PATH, "utf8");
+  const parsed = JSON.parse(raw);
+  if (!parsed.client_email || !parsed.private_key) {
+    throw new Error(
+      "Invalid Google Drive credentials JSON: client_email/private_key missing"
+    );
+  }
+};
+
 const sanitizeFolderName = (value) =>
   String(value || "")
     .trim()
@@ -23,6 +39,7 @@ const sanitizeFolderName = (value) =>
 
 const getDriveClient = async () => {
   if (!driveClientPromise) {
+    assertCredentialsFile();
     const auth = new google.auth.GoogleAuth({
       keyFile: CREDENTIALS_PATH,
       scopes: ["https://www.googleapis.com/auth/drive"],
@@ -208,4 +225,5 @@ module.exports = {
   uploadFileToGoogleDrive,
   deleteFileFromGoogleDrive,
   ensureRootFolder,
+  ensureUserCategoryFolder,
 };
