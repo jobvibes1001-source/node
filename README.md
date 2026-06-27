@@ -54,6 +54,10 @@ Edit the `.env` file with your configuration:
 - **SMS_OTP_SENDER_ID**: NinzaSMS sender id (default: `15901`)
 - **SMS_OTP_ROUTE**: Optional NinzaSMS route (`waninza` for WhatsApp). Keep empty for normal SMS.
 - **SMS_OTP_COUNTRY_CODE**: Prefix used when phone has 10 digits (default: `91`)
+- **GOOGLE_DRIVE_CREDENTIALS_FILE**: Optional path to service account JSON (default: `src/utility/jobvibes-d2cac-f63636e29c35.json`)
+- **GOOGLE_DRIVE_ROOT_FOLDER_NAME**: Root Drive folder name (default: `JobVibes-metadata`)
+- **GOOGLE_DRIVE_PARENT_FOLDER_ID**: Optional parent folder ID to nest `JobVibes-metadata` under a shared folder
+- **GOOGLE_DRIVE_PUBLIC_READ**: `true` or `false` for public read links (default: `true`)
 
 ### 4. Start MongoDB (if using local MongoDB)
 
@@ -90,6 +94,20 @@ npm start
 - Server should start on `http://localhost:3000` (or your configured PORT)
 - Check the health endpoint: `http://localhost:3000/health`
 - Root endpoint: `http://localhost:3000/`
+
+## Google Drive File Storage
+
+All upload APIs now store files on Google Drive using your service account JSON.
+
+Folder hierarchy is created automatically:
+
+`JobVibes-metadata/users/<userId>/<category>/`
+
+Current upload categories:
+- `general-uploads` via `POST /api/v1/user/upload`
+- `resumes` via `POST /api/v1/user/resume`
+
+Before uploading files, share your Drive folder (or parent folder) with the service account email as Editor.
 
 ## API Endpoints
 

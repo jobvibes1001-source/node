@@ -7,28 +7,12 @@ const Skill = require("../../models/skillsSchema");
 const { destructureUser } = require("../../utility/responseFormat");
 const notificationEmitter = require("../../emitter/notificationEmitter");
 const fs = require("fs");
-const path = require("path");
-const CONSTANT = require("../../utility/constant");
 const { getPaginatedResults } = require("../../utility/paginate");
-const cloudinary = require("cloudinary").v2;
-
-// Configure Cloudinary
-const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
-const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
-const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
-
-if (cloudName && apiKey && apiSecret) {
-  cloudinary.config({
-    cloud_name: cloudName,
-    api_key: apiKey,
-    api_secret: apiSecret,
-  });
-  console.log("✅ Cloudinary configured successfully");
-  console.log(`   Cloud Name: ${cloudName.substring(0, 3)}***`);
-} else {
-  console.warn("⚠️ Cloudinary credentials not found in environment variables");
-  console.warn(`   Cloud Name: ${cloudName ? 'Set' : 'Missing'}, API Key: ${apiKey ? 'Set' : 'Missing'}, API Secret: ${apiSecret ? 'Set' : 'Missing'}`);
-}
+const {
+  uploadFileToGoogleDrive,
+  deleteFileFromGoogleDrive,
+  ensureRootFolder,
+} = require("../../utility/googleDriveStorage");
 
 // Helper function to build absolute URLs
 const buildAbsoluteUrl = (pathOrUrl, req) => {
@@ -427,7 +411,7 @@ exports.uploadServices1 = async (req) => {
   }
 };
 
-// --- Upload Service (Cloudinary) ---
+// --- Upload Service (Google Drive) ---
 exports.uploadServices = async (req) => {
   try {
     // Check MongoDB connection
@@ -440,28 +424,6 @@ exports.uploadServices = async (req) => {
         data: {},
       };
     }
-
-    // Check if Cloudinary is configured
-    const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
-    const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
-    const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
-
-    if (!cloudName || !apiKey || !apiSecret) {
-      console.error("Cloudinary configuration missing. Cloud Name:", !!cloudName, "API Key:", !!apiKey, "API Secret:", !!apiSecret);
-      return {
-        status: false,
-        statusCode: 500,
-        message: "Cloudinary configuration not found. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.",
-        data: {},
-      };
-    }
-
-    // Re-configure Cloudinary with trimmed values to ensure clean config
-    cloudinary.config({
-      cloud_name: cloudName,
-      api_key: apiKey,
-      api_secret: apiSecret,
-    });
 
     // Check for files - handle both req.files (from multer) and req.file (single file)
     const files = req.files || (req.file ? [req.file] : []);
@@ -476,7 +438,9 @@ exports.uploadServices = async (req) => {
       };
     }
 
-    console.log(`Processing ${files.length} file(s) for upload to Cloudinary`);
+    const userId = req.user?.sub || "anonymous";
+    await ensureRootFolder();
+    console.log(`Processing ${files.length} file(s) for upload to Google Drive`);
 
     const uploads = await Promise.all(
       files.map(async (file) => {
@@ -486,24 +450,37 @@ exports.uploadServices = async (req) => {
             throw new Error(`File path is missing for file: ${file.originalname || 'unknown'}`);
           }
 
-          // Upload to Cloudinary
-          console.log(`Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`);
-          const result = await cloudinary.uploader.upload(file.path, {
-            folder: "jobvibes", // Optional: organize files in a folder
-            resource_type: "auto", // Automatically detect resource type (image, video, raw)
-            public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_")}`, // Unique filename, sanitized
+          console.log(
+            `Uploading file to Google Drive: ${file.originalname} (${file.size} bytes)`
+          );
+          const result = await uploadFileToGoogleDrive({
+            localFilePath: file.path,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            userId,
+            category: "general-uploads",
+            metadata: {
+              source: "user/upload",
+              fieldName: file.fieldname,
+            },
           });
 
           // Save file info to database
           const fileDoc = await File.create({
-            filename: result.public_id,
+            user: req.user?.sub,
+            storageProvider: "google_drive",
+            filename: result.fileName,
             originalName: file.originalname,
-            path: result.secure_url, // Store Cloudinary URL as path
-            url: result.secure_url, // Public URL from Cloudinary
-            size: file.size,
+            path: result.url,
+            url: result.url,
+            size: result.size || file.size,
+            driveFileId: result.fileId,
+            driveFolderId: result.driveFolderId,
+            driveCategoryFolderId: result.driveCategoryFolderId,
+            mimeType: result.mimeType || file.mimetype,
           });
 
-          // Optionally delete local file after upload to Cloudinary
+          // Delete local temp file after successful Drive upload
           if (fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
           }
@@ -515,19 +492,21 @@ exports.uploadServices = async (req) => {
             url: fileDoc.url,
             size: fileDoc.size,
             uploadedAt: fileDoc.uploadedAt,
-            cloudinary: {
-              public_id: result.public_id,
-              format: result.format,
-              width: result.width,
-              height: result.height,
-              bytes: result.bytes,
+            drive: {
+              fileId: result.fileId,
+              folderId: result.driveFolderId,
+              categoryFolderId: result.driveCategoryFolderId,
+              webViewLink: result.webViewLink,
+              webContentLink: result.webContentLink,
             },
           };
         } catch (uploadError) {
-          console.error(`Error uploading file ${file.originalname} to Cloudinary:`, uploadError);
-          console.error(`Cloudinary error details:`, {
+          console.error(
+            `Error uploading file ${file.originalname} to Google Drive:`,
+            uploadError
+          );
+          console.error(`Google Drive error details:`, {
             message: uploadError.message,
-            http_code: uploadError.http_code,
             name: uploadError.name,
           });
 
@@ -536,8 +515,9 @@ exports.uploadServices = async (req) => {
             fs.unlinkSync(file.path);
           }
 
-          // Re-throw with more context
-          throw new Error(`Cloudinary upload failed: ${uploadError.message || uploadError}`);
+          throw new Error(
+            `Google Drive upload failed: ${uploadError.message || uploadError}`
+          );
         }
       })
     );
@@ -545,11 +525,11 @@ exports.uploadServices = async (req) => {
     return {
       status: true,
       statusCode: 200,
-      message: "Files uploaded to Cloudinary successfully",
+      message: "Files uploaded to Google Drive successfully",
       data: uploads,
     };
   } catch (error) {
-    console.error("Cloudinary upload error:", error);
+    console.error("Google Drive upload error:", error);
     console.error("Error stack:", error.stack);
 
     // Check if it's a MongoDB connection error
@@ -566,17 +546,19 @@ exports.uploadServices = async (req) => {
       };
     }
 
-    // Handle Cloudinary-specific errors
-    if (error.message?.includes("cloud_name is disabled") ||
-      error.message?.includes("Invalid cloud_name") ||
-      error.http_code === 401) {
+    if (
+      error.message?.includes("Google Drive") ||
+      error.message?.includes("drive")
+    ) {
       return {
         status: false,
         statusCode: 500,
-        message: "Cloudinary configuration error: The cloud_name is invalid or disabled. Please check your CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.",
+        message:
+          "Google Drive upload configuration error. Please check service account file, folder sharing, and Drive permissions.",
         data: {
-          error: "CloudinaryConfigError",
-          details: "Verify your Cloudinary credentials are correct and the account is active"
+          error: "GoogleDriveConfigError",
+          details:
+            "Verify credentials JSON and share Drive folder with service account",
         },
       };
     }
@@ -584,10 +566,10 @@ exports.uploadServices = async (req) => {
     return {
       status: false,
       statusCode: 500,
-      message: error.message || "Failed to upload files to Cloudinary",
+      message: error.message || "Failed to upload files to Google Drive",
       data: {
         error: error.name || "Unknown error",
-        details: error.http_code ? `HTTP ${error.http_code}` : undefined
+        details: error.code ? `CODE ${error.code}` : undefined,
       },
     };
   }
@@ -635,6 +617,7 @@ exports.resumeServices = async (req) => {
     }
 
     const file = req.file;
+    await ensureRootFolder();
 
     // Check if a resume already exists for this user
     const existingResume = await File.findOne({ user: userId, type: "resume" });
@@ -642,14 +625,10 @@ exports.resumeServices = async (req) => {
     // Delete old resume file and record if it exists
     if (existingResume) {
       try {
-        if (existingResume.path && fs.existsSync(existingResume.path)) {
+        if (existingResume.driveFileId) {
+          await deleteFileFromGoogleDrive(existingResume.driveFileId);
+        } else if (existingResume.path && fs.existsSync(existingResume.path)) {
           fs.unlinkSync(existingResume.path);
-        } else if (existingResume.url) {
-          const oldName = existingResume.url.split("/uploads/")[1];
-          if (oldName) {
-            const oldPath = path.join(process.cwd(), "src", "uploads", oldName);
-            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-          }
         }
         await File.deleteOne({ _id: existingResume._id });
       } catch (err) {
@@ -657,21 +636,38 @@ exports.resumeServices = async (req) => {
       }
     }
 
-    const relativeUrl = `/uploads/${file.filename}`;
-    const absoluteUrl = buildAbsoluteUrl(relativeUrl, req);
+    const driveUploaded = await uploadFileToGoogleDrive({
+      localFilePath: file.path,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      userId,
+      category: "resumes",
+      metadata: {
+        source: "user/resume",
+      },
+    });
+
+    if (fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
 
     // Save new resume metadata in DB
     const newResume = await File.create({
       user: userId,
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      url: absoluteUrl,
-      size: file.size,
       type: "resume",
+      storageProvider: "google_drive",
+      filename: driveUploaded.fileName,
+      originalName: file.originalname,
+      path: driveUploaded.url,
+      url: driveUploaded.url,
+      size: driveUploaded.size || file.size,
+      driveFileId: driveUploaded.fileId,
+      driveFolderId: driveUploaded.driveFolderId,
+      driveCategoryFolderId: driveUploaded.driveCategoryFolderId,
+      mimeType: driveUploaded.mimeType || file.mimetype,
     });
 
-    user.resume_url = absoluteUrl;
+    user.resume_url = driveUploaded.url;
     const updatedUserInfo = await user.save();
 
     return {
