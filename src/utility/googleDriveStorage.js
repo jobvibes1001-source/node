@@ -173,19 +173,23 @@ const uploadFileToGoogleDrive = async ({
     }
   }
 
-  const url =
+  const previewUrl =
     createdFile.data.webViewLink ||
-    createdFile.data.webContentLink ||
     `https://drive.google.com/file/d/${createdFile.data.id}/view`;
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${createdFile.data.id}`;
+  const openUrl = `https://drive.google.com/uc?id=${createdFile.data.id}`;
 
   return {
     fileId: createdFile.data.id,
     fileName: createdFile.data.name,
     mimeType: createdFile.data.mimeType,
     size: Number(createdFile.data.size || 0),
-    url,
-    webViewLink: createdFile.data.webViewLink,
-    webContentLink: createdFile.data.webContentLink,
+    // Keep `url` as direct file URL for PDF/video/doc consumers.
+    url: downloadUrl,
+    webViewLink: previewUrl,
+    webContentLink: createdFile.data.webContentLink || openUrl,
+    downloadUrl,
+    openUrl,
     driveFolderId: userFolderId,
     driveCategoryFolderId: categoryFolderId,
   };
