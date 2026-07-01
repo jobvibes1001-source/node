@@ -4,6 +4,8 @@ const URL = process.env.MONGO_URI || "mongodb://localhost:27017/jobvibes";
 
 mongoose.set("strictQuery", false);
 
+
+
 mongoose
   .connect(URL, {
     useUnifiedTopology: true,
