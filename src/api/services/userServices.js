@@ -30,6 +30,35 @@ const getCloudinaryConfig = () => {
   });
 };
 
+const resolveResourceTypeForUpload = (mimeType = "", originalName = "") => {
+  const normalizedMime = String(mimeType).toLowerCase();
+  const ext = String(originalName).toLowerCase().split(".").pop() || "";
+  const rawExts = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"];
+
+  if (normalizedMime === "application/pdf" || rawExts.includes(ext)) {
+    return "raw";
+  }
+  if (normalizedMime.startsWith("video/")) {
+    return "video";
+  }
+  if (normalizedMime.startsWith("image/")) {
+    return "image";
+  }
+  return "auto";
+};
+
+const buildCloudinaryDeliveryUrl = (uploadResult) => {
+  const finalResourceType = uploadResult?.resource_type || "raw";
+  const finalFormat = uploadResult?.format || undefined;
+  const generatedUrl = cloudinary.url(uploadResult.public_id, {
+    resource_type: finalResourceType,
+    type: "upload",
+    secure: true,
+    ...(finalFormat ? { format: finalFormat } : {}),
+  });
+  return generatedUrl || uploadResult?.secure_url;
+};
+
 // Helper function to build absolute URLs
 const buildAbsoluteUrl = (pathOrUrl, req) => {
   if (!pathOrUrl) return pathOrUrl;
@@ -476,19 +505,26 @@ exports.uploadServices = async (req) => {
             `Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`
           );
 
+          const resolvedResourceType = resolveResourceTypeForUpload(
+            file.mimetype,
+            file.originalname
+          );
           const result = await cloudinary.uploader.upload(file.path, {
             folder: `jobvibes/${userId}/uploads`,
-            resource_type: "auto",
+            resource_type: resolvedResourceType,
             public_id: `${Date.now()}-${safeName}`,
+            use_filename: false,
+            unique_filename: false,
           });
+          const deliveryUrl = buildCloudinaryDeliveryUrl(result);
 
           const fileDoc = await File.create({
             user: req.user?.sub,
             storageProvider: "cloudinary",
             filename: result.public_id,
             originalName: file.originalname,
-            path: result.secure_url,
-            url: result.secure_url,
+            path: deliveryUrl,
+            url: deliveryUrl,
             size: file.size,
             mimeType: result.resource_type || file.mimetype,
           });
@@ -657,6 +693,7 @@ exports.resumeServices = async (req) => {
       resource_type: "raw",
       public_id: `${Date.now()}-${safeName}`,
     });
+    const resumeUrl = buildCloudinaryDeliveryUrl(uploaded);
 
     if (fs.existsSync(file.path)) {
       fs.unlinkSync(file.path);
@@ -669,13 +706,13 @@ exports.resumeServices = async (req) => {
       storageProvider: "cloudinary",
       filename: uploaded.public_id,
       originalName: file.originalname,
-      path: uploaded.secure_url,
-      url: uploaded.secure_url,
+      path: resumeUrl,
+      url: resumeUrl,
       size: file.size,
       mimeType: uploaded.resource_type || file.mimetype,
     });
 
-    user.resume_url = uploaded.secure_url;
+    user.resume_url = resumeUrl;
     const updatedUserInfo = await user.save();
 
     return {

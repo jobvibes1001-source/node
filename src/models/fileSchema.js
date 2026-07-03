@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const fileSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   type: { type: String },
-  storageProvider: { type: String, default: "google_drive" },
+  storageProvider: { type: String, default: "cloudinary" },
   filename: { type: String, required: true }, // saved file name
   originalName: { type: String, required: true }, // original file name
   path: { type: String, required: true }, // server path (uploads/...)
