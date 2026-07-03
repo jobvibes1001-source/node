@@ -7,13 +7,28 @@ const Skill = require("../../models/skillsSchema");
 const { destructureUser } = require("../../utility/responseFormat");
 const notificationEmitter = require("../../emitter/notificationEmitter");
 const fs = require("fs");
+const path = require("path");
 const { getPaginatedResults } = require("../../utility/paginate");
-const {
-  uploadFileToGoogleDrive,
-  deleteFileFromGoogleDrive,
-  ensureRootFolder,
-  ensureUserCategoryFolder,
-} = require("../../utility/googleDriveStorage");
+const CONSTANT = require("../../utility/constant");
+const cloudinary = require("cloudinary").v2;
+
+const getCloudinaryConfig = () => {
+  const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
+  const apiKey = CONSTANT.CLOUDINARY_API_KEY?.trim();
+  const apiSecret = CONSTANT.CLOUDINARY_API_SECRET?.trim();
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error(
+      "Cloudinary configuration not found. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
+    );
+  }
+
+  cloudinary.config({
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
+  });
+};
 
 // Helper function to build absolute URLs
 const buildAbsoluteUrl = (pathOrUrl, req) => {
@@ -412,7 +427,7 @@ exports.uploadServices1 = async (req) => {
   }
 };
 
-// --- Upload Service (Google Drive) ---
+// --- Upload Service (Cloudinary) ---
 exports.uploadServices = async (req) => {
   try {
     // Check MongoDB connection
@@ -425,6 +440,8 @@ exports.uploadServices = async (req) => {
         data: {},
       };
     }
+
+    getCloudinaryConfig();
 
     // Check for files - handle both req.files (from multer) and req.file (single file)
     const files = req.files || (req.file ? [req.file] : []);
@@ -440,48 +457,42 @@ exports.uploadServices = async (req) => {
     }
 
     const userId = req.user?.sub || "anonymous";
-    await ensureRootFolder();
-    console.log(`Processing ${files.length} file(s) for upload to Google Drive`);
+    console.log(`Processing ${files.length} file(s) for upload to Cloudinary`);
 
     const uploads = await Promise.all(
       files.map(async (file) => {
         try {
-          // Ensure file.path exists
           if (!file.path) {
-            throw new Error(`File path is missing for file: ${file.originalname || 'unknown'}`);
+            throw new Error(
+              `File path is missing for file: ${file.originalname || "unknown"}`
+            );
           }
 
+          const safeName = (file.originalname || "file")
+            .replace(/\s+/g, "_")
+            .replace(/[^a-zA-Z0-9._-]/g, "_");
+
           console.log(
-            `Uploading file to Google Drive: ${file.originalname} (${file.size} bytes)`
+            `Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`
           );
-          const result = await uploadFileToGoogleDrive({
-            localFilePath: file.path,
-            originalName: file.originalname,
-            mimeType: file.mimetype,
-            userId,
-            category: "general-uploads",
-            metadata: {
-              source: "user/upload",
-              fieldName: file.fieldname,
-            },
+
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: `jobvibes/${userId}/uploads`,
+            resource_type: "auto",
+            public_id: `${Date.now()}-${safeName}`,
           });
 
-          // Save file info to database
           const fileDoc = await File.create({
             user: req.user?.sub,
-            storageProvider: "google_drive",
-            filename: result.fileName,
+            storageProvider: "cloudinary",
+            filename: result.public_id,
             originalName: file.originalname,
-            path: result.url,
-            url: result.url,
-            size: result.size || file.size,
-            driveFileId: result.fileId,
-            driveFolderId: result.driveFolderId,
-            driveCategoryFolderId: result.driveCategoryFolderId,
-            mimeType: result.mimeType || file.mimetype,
+            path: result.secure_url,
+            url: result.secure_url,
+            size: file.size,
+            mimeType: result.resource_type || file.mimetype,
           });
 
-          // Delete local temp file after successful Drive upload
           if (fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
           }
@@ -493,20 +504,19 @@ exports.uploadServices = async (req) => {
             url: fileDoc.url,
             size: fileDoc.size,
             uploadedAt: fileDoc.uploadedAt,
-            drive: {
-              fileId: result.fileId,
-              folderId: result.driveFolderId,
-              categoryFolderId: result.driveCategoryFolderId,
-              webViewLink: result.webViewLink,
-              webContentLink: result.webContentLink,
+            cloudinary: {
+              public_id: result.public_id,
+              resource_type: result.resource_type,
+              format: result.format,
+              bytes: result.bytes,
             },
           };
         } catch (uploadError) {
           console.error(
-            `Error uploading file ${file.originalname} to Google Drive:`,
+            `Error uploading file ${file.originalname} to Cloudinary:`,
             uploadError
           );
-          console.error(`Google Drive error details:`, {
+          console.error(`Cloudinary error details:`, {
             message: uploadError.message,
             name: uploadError.name,
           });
@@ -516,9 +526,7 @@ exports.uploadServices = async (req) => {
             fs.unlinkSync(file.path);
           }
 
-          throw new Error(
-            `Google Drive upload failed: ${uploadError.message || uploadError}`
-          );
+          throw new Error(`Cloudinary upload failed: ${uploadError.message || uploadError}`);
         }
       })
     );
@@ -526,11 +534,11 @@ exports.uploadServices = async (req) => {
     return {
       status: true,
       statusCode: 200,
-      message: "Files uploaded to Google Drive successfully",
+      message: "Files uploaded to Cloudinary successfully",
       data: uploads,
     };
   } catch (error) {
-    console.error("Google Drive upload error:", error);
+    console.error("Cloudinary upload error:", error);
     console.error("Error stack:", error.stack);
 
     // Check if it's a MongoDB connection error
@@ -547,19 +555,15 @@ exports.uploadServices = async (req) => {
       };
     }
 
-    if (
-      error.message?.includes("Google Drive") ||
-      error.message?.includes("drive")
-    ) {
+    if (error.message?.toLowerCase().includes("cloudinary")) {
       return {
         status: false,
         statusCode: 500,
         message:
-          "Google Drive upload configuration error. Please check service account file, folder sharing, and Drive permissions.",
+          "Cloudinary upload configuration error. Please verify Cloudinary credentials.",
         data: {
-          error: "GoogleDriveConfigError",
-          details:
-            "Verify credentials JSON and share Drive folder with service account",
+          error: "CloudinaryConfigError",
+          details: "Verify CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET",
         },
       };
     }
@@ -567,46 +571,10 @@ exports.uploadServices = async (req) => {
     return {
       status: false,
       statusCode: 500,
-      message: error.message || "Failed to upload files to Google Drive",
+      message: error.message || "Failed to upload files to Cloudinary",
       data: {
         error: error.name || "Unknown error",
         details: error.code ? `CODE ${error.code}` : undefined,
-      },
-    };
-  }
-};
-
-// --- Upload Health Service (Google Drive auth/folder check) ---
-exports.driveUploadHealthService = async (req) => {
-  try {
-    const userId = req.user?.sub || "health-check-user";
-    const rootFolderId = await ensureRootFolder();
-    const { userFolderId, categoryFolderId } = await ensureUserCategoryFolder({
-      userId,
-      category: "general-uploads",
-    });
-
-    return {
-      status: true,
-      statusCode: 200,
-      message: "Google Drive upload health is OK",
-      data: {
-        driveAuth: true,
-        rootFolderName: process.env.GOOGLE_DRIVE_ROOT_FOLDER_NAME || "JobVibes-metadata",
-        rootFolderId,
-        userFolderId,
-        categoryFolderId,
-        checkedAt: new Date().toISOString(),
-      },
-    };
-  } catch (error) {
-    return {
-      status: false,
-      statusCode: 500,
-      message: `Google Drive upload health failed: ${error.message}`,
-      data: {
-        driveAuth: false,
-        checkedAt: new Date().toISOString(),
       },
     };
   }
@@ -654,7 +622,7 @@ exports.resumeServices = async (req) => {
     }
 
     const file = req.file;
-    await ensureRootFolder();
+    getCloudinaryConfig();
 
     // Check if a resume already exists for this user
     const existingResume = await File.findOne({ user: userId, type: "resume" });
@@ -662,8 +630,16 @@ exports.resumeServices = async (req) => {
     // Delete old resume file and record if it exists
     if (existingResume) {
       try {
-        if (existingResume.driveFileId) {
-          await deleteFileFromGoogleDrive(existingResume.driveFileId);
+        if (existingResume.storageProvider === "cloudinary" && existingResume.filename) {
+          for (const resourceType of ["raw", "image", "video"]) {
+            try {
+              await cloudinary.uploader.destroy(existingResume.filename, {
+                resource_type: resourceType,
+              });
+            } catch (destroyErr) {
+              // best-effort cleanup for old resource
+            }
+          }
         } else if (existingResume.path && fs.existsSync(existingResume.path)) {
           fs.unlinkSync(existingResume.path);
         }
@@ -673,15 +649,13 @@ exports.resumeServices = async (req) => {
       }
     }
 
-    const driveUploaded = await uploadFileToGoogleDrive({
-      localFilePath: file.path,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-      userId,
-      category: "resumes",
-      metadata: {
-        source: "user/resume",
-      },
+    const safeName = (file.originalname || "resume")
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    const uploaded = await cloudinary.uploader.upload(file.path, {
+      folder: `jobvibes/${userId}/resumes`,
+      resource_type: "raw",
+      public_id: `${Date.now()}-${safeName}`,
     });
 
     if (fs.existsSync(file.path)) {
@@ -692,19 +666,16 @@ exports.resumeServices = async (req) => {
     const newResume = await File.create({
       user: userId,
       type: "resume",
-      storageProvider: "google_drive",
-      filename: driveUploaded.fileName,
+      storageProvider: "cloudinary",
+      filename: uploaded.public_id,
       originalName: file.originalname,
-      path: driveUploaded.url,
-      url: driveUploaded.url,
-      size: driveUploaded.size || file.size,
-      driveFileId: driveUploaded.fileId,
-      driveFolderId: driveUploaded.driveFolderId,
-      driveCategoryFolderId: driveUploaded.driveCategoryFolderId,
-      mimeType: driveUploaded.mimeType || file.mimetype,
+      path: uploaded.secure_url,
+      url: uploaded.secure_url,
+      size: file.size,
+      mimeType: uploaded.resource_type || file.mimetype,
     });
 
-    user.resume_url = driveUploaded.url;
+    user.resume_url = uploaded.secure_url;
     const updatedUserInfo = await user.save();
 
     return {

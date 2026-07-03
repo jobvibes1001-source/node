@@ -4,7 +4,6 @@ const {
   step2Services,
   step3Services,
   uploadServices,
-  driveUploadHealthService,
   skillsServices,
   updateProfileServices,
   getProfileServices,
@@ -65,15 +64,6 @@ exports.uploadController = async (req, res, next) => {
       message: error.message || "Internal server error",
       data: { error: error.name },
     });
-  }
-};
-
-exports.uploadHealthController = async (req, res, next) => {
-  try {
-    const data = await driveUploadHealthService(req);
-    sendResponse(res, data);
-  } catch (error) {
-    next(error);
   }
 };
 
