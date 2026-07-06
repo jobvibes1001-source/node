@@ -9,6 +9,7 @@ const {
   getProfileServices,
   getUserFeedServices,
   resumeServices,
+  viewFileServices,
 } = require("../services/userServices");
 
 exports.step1Controller = async (req, res, next) => {
@@ -77,6 +78,10 @@ exports.resumeController = async (req, res, next) => {
     console.log("Error in resumeController:--", error);
     next(error);
   }
+};
+
+exports.viewFileController = async (req, res) => {
+  await viewFileServices(req, res);
 };
 
 exports.skillsController = async (req, res, next) => {

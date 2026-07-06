@@ -16,6 +16,7 @@ const {
   getProfileController,
   getFeedController,
   resumeController,
+  viewFileController,
 } = require("../../controllers/userController.js");
 const { authenticate } = require("../../middleware/authMiddleware");
 const {
@@ -101,6 +102,8 @@ router.post(
 );
 
 router.post("/resume", authenticate, upload.single("file"), resumeController);
+
+router.get("/files/:fileId/view", viewFileController);
 
 // Get user details by id
 router.get("/:id", authenticate, getProfileController);

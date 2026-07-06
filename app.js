@@ -1,4 +1,11 @@
 require("dotenv").config();
+const dns = require("dns");
+
+// Windows Node.js often fails mongodb+srv SRV lookups (querySrv ECONNREFUSED)
+if (process.platform === "win32") {
+  dns.setServers(["8.8.8.8", "1.1.1.1", ...dns.getServers()]);
+}
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");

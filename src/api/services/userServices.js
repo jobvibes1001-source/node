@@ -11,6 +11,7 @@ const path = require("path");
 const { getPaginatedResults } = require("../../utility/paginate");
 const CONSTANT = require("../../utility/constant");
 const cloudinary = require("cloudinary").v2;
+const axios = require("axios");
 
 const getCloudinaryConfig = () => {
   const cloudName = CONSTANT.CLOUDINARY_CLOUD_NAME?.trim();
@@ -30,12 +31,24 @@ const getCloudinaryConfig = () => {
   });
 };
 
+const buildUploadPublicId = (originalName = "file") => {
+  const safeName = String(originalName)
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+  const baseName = safeName.replace(/\.[^.]+$/, "") || safeName;
+  return `${Date.now()}-${baseName}`;
+};
+
 const resolveResourceTypeForUpload = (mimeType = "", originalName = "") => {
   const normalizedMime = String(mimeType).toLowerCase();
   const ext = String(originalName).toLowerCase().split(".").pop() || "";
-  const rawExts = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"];
+  const rawExts = ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt"];
 
-  if (normalizedMime === "application/pdf" || rawExts.includes(ext)) {
+  // PDFs must use image type for public browser delivery (raw PDFs are often ACL-blocked).
+  if (normalizedMime === "application/pdf" || ext === "pdf") {
+    return "image";
+  }
+  if (rawExts.includes(ext)) {
     return "raw";
   }
   if (normalizedMime.startsWith("video/")) {
@@ -48,15 +61,74 @@ const resolveResourceTypeForUpload = (mimeType = "", originalName = "") => {
 };
 
 const buildCloudinaryDeliveryUrl = (uploadResult) => {
+  // secure_url from upload response has the correct version and path
+  if (uploadResult?.secure_url) {
+    return uploadResult.secure_url;
+  }
+
   const finalResourceType = uploadResult?.resource_type || "raw";
-  const finalFormat = uploadResult?.format || undefined;
-  const generatedUrl = cloudinary.url(uploadResult.public_id, {
+  return cloudinary.url(uploadResult.public_id, {
     resource_type: finalResourceType,
     type: "upload",
     secure: true,
-    ...(finalFormat ? { format: finalFormat } : {}),
+    version: uploadResult.version,
   });
-  return generatedUrl || uploadResult?.secure_url;
+};
+
+const isPdfFile = (mimeType = "", originalName = "", format = "") => {
+  const normalizedMime = String(mimeType).toLowerCase();
+  const ext = String(originalName).toLowerCase().split(".").pop() || "";
+  return (
+    String(format).toLowerCase() === "pdf" ||
+    normalizedMime === "application/pdf" ||
+    ext === "pdf"
+  );
+};
+
+const buildPdfViewPath = (fileId) => `/api/v1/user/files/${fileId}/view`;
+
+const getCloudinaryDownloadMeta = (file) => {
+  const mimeType = String(file.mimeType || "").toLowerCase();
+  const ext = String(file.originalName || "").toLowerCase().split(".").pop() || "";
+
+  if (isPdfFile(mimeType, file.originalName)) {
+    return { resource_type: "image", format: "pdf" };
+  }
+  if (mimeType.startsWith("image/")) {
+    return { resource_type: "image", format: ext || mimeType.split("/")[1] };
+  }
+  if (mimeType.startsWith("video/")) {
+    return { resource_type: "video", format: ext || mimeType.split("/")[1] };
+  }
+
+  return { resource_type: "raw", format: ext || "bin" };
+};
+
+const buildPdfPreviewUrl = (uploadResult) =>
+  cloudinary.url(uploadResult.public_id, {
+    resource_type: "image",
+    type: "upload",
+    secure: true,
+    format: "png",
+    page: 1,
+    version: uploadResult.version,
+  });
+
+const applyPdfViewUrlIfNeeded = async (fileDoc, req, uploadResult) => {
+  if (
+    !isPdfFile(
+      fileDoc.mimeType,
+      fileDoc.originalName,
+      uploadResult?.format
+    )
+  ) {
+    return fileDoc.url;
+  }
+
+  const viewUrl = buildAbsoluteUrl(buildPdfViewPath(fileDoc._id), req);
+  fileDoc.url = viewUrl;
+  await fileDoc.save();
+  return viewUrl;
 };
 
 // Helper function to build absolute URLs
@@ -66,9 +138,14 @@ const buildAbsoluteUrl = (pathOrUrl, req) => {
   // if already absolute (http/https), return as is
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
 
-  const base = `${req.protocol}://${req.get("host")}`;
+  if (req) {
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
+    const host = req.get("x-forwarded-host") || req.get("host");
+    return `${protocol}://${host}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+  }
 
-  return `${base}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+  const envBase = CONSTANT.BASE_URL?.replace(/\/$/, "");
+  return `${envBase || ""}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
 };
 
 // --- Candidate step 1 Service ---
@@ -497,10 +574,6 @@ exports.uploadServices = async (req) => {
             );
           }
 
-          const safeName = (file.originalname || "file")
-            .replace(/\s+/g, "_")
-            .replace(/[^a-zA-Z0-9._-]/g, "_");
-
           console.log(
             `Uploading file to Cloudinary: ${file.originalname} (${file.size} bytes)`
           );
@@ -512,7 +585,9 @@ exports.uploadServices = async (req) => {
           const result = await cloudinary.uploader.upload(file.path, {
             folder: `jobvibes/${userId}/uploads`,
             resource_type: resolvedResourceType,
-            public_id: `${Date.now()}-${safeName}`,
+            public_id: buildUploadPublicId(file.originalname),
+            type: "upload",
+            access_mode: "public",
             use_filename: false,
             unique_filename: false,
           });
@@ -526,8 +601,14 @@ exports.uploadServices = async (req) => {
             path: deliveryUrl,
             url: deliveryUrl,
             size: file.size,
-            mimeType: result.resource_type || file.mimetype,
+            mimeType: file.mimetype || result.format,
           });
+          const accessUrl = await applyPdfViewUrlIfNeeded(fileDoc, req, result);
+          const isPdf = isPdfFile(
+            file.mimetype,
+            file.originalname,
+            result.format
+          );
 
           if (fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
@@ -537,7 +618,10 @@ exports.uploadServices = async (req) => {
             id: fileDoc._id,
             filename: fileDoc.filename,
             originalName: fileDoc.originalName,
-            url: fileDoc.url,
+            url: accessUrl,
+            cloudinaryUrl: deliveryUrl,
+            mimeType: file.mimetype || (isPdf ? "application/pdf" : result.format),
+            ...(isPdf ? { previewUrl: buildPdfPreviewUrl(result) } : {}),
             size: fileDoc.size,
             uploadedAt: fileDoc.uploadedAt,
             cloudinary: {
@@ -616,6 +700,63 @@ exports.uploadServices = async (req) => {
   }
 };
 
+// --- Cloudinary file view/download (PDF proxy for free-plan ACL blocks) ---
+exports.viewFileServices = async (req, res) => {
+  try {
+    const file = await File.findById(req.params.fileId);
+    if (!file) {
+      return res.status(404).json({ status: false, message: "File not found" });
+    }
+
+    const meta = getCloudinaryDownloadMeta(file);
+    const needsProxy =
+      file.storageProvider === "cloudinary" &&
+      isPdfFile(file.mimeType, file.originalName, meta.format);
+
+    if (!needsProxy) {
+      return res.redirect(file.path || file.url);
+    }
+
+    getCloudinaryConfig();
+    const downloadUrl = cloudinary.utils.private_download_url(
+      file.filename,
+      meta.format,
+      {
+        resource_type: meta.resource_type,
+        type: "upload",
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+      }
+    );
+
+    const cloudinaryRes = await axios.get(downloadUrl, {
+      responseType: "stream",
+      validateStatus: () => true,
+    });
+
+    if (cloudinaryRes.status !== 200) {
+      return res.status(cloudinaryRes.status).json({
+        status: false,
+        message: "Failed to fetch file from Cloudinary",
+      });
+    }
+
+    res.setHeader("Content-Type", file.mimeType || "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${file.originalName.replace(/"/g, "")}"`
+    );
+    cloudinaryRes.data.pipe(res);
+  } catch (error) {
+    console.error("File view error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        status: false,
+        message: error.message || "Failed to load file",
+      });
+    }
+  }
+};
+
 // --- Resume Upload Service ---
 exports.resumeServices = async (req) => {
   try {
@@ -685,13 +826,16 @@ exports.resumeServices = async (req) => {
       }
     }
 
-    const safeName = (file.originalname || "resume")
-      .replace(/\s+/g, "_")
-      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    const resolvedResourceType = resolveResourceTypeForUpload(
+      file.mimetype,
+      file.originalname
+    );
     const uploaded = await cloudinary.uploader.upload(file.path, {
       folder: `jobvibes/${userId}/resumes`,
-      resource_type: "raw",
-      public_id: `${Date.now()}-${safeName}`,
+      resource_type: resolvedResourceType,
+      public_id: buildUploadPublicId(file.originalname || "resume"),
+      type: "upload",
+      access_mode: "public",
     });
     const resumeUrl = buildCloudinaryDeliveryUrl(uploaded);
 
@@ -709,10 +853,11 @@ exports.resumeServices = async (req) => {
       path: resumeUrl,
       url: resumeUrl,
       size: file.size,
-      mimeType: uploaded.resource_type || file.mimetype,
+      mimeType: file.mimetype || uploaded.format,
     });
+    const accessUrl = await applyPdfViewUrlIfNeeded(newResume, req, uploaded);
 
-    user.resume_url = resumeUrl;
+    user.resume_url = accessUrl;
     const updatedUserInfo = await user.save();
 
     return {
